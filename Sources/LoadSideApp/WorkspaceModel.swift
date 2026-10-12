@@ -1,0 +1,370 @@
+import AppKit
+import Foundation
+import LoadSideCore
+import SwiftUI
+import UniformTypeIdentifiers
+
+enum AppSection: String, CaseIterable, Identifiable {
+    case workspace = "Workspace", activity = "Activity", guide = "Guide"
+    var id: Self { self }
+    var symbol: String {
+        switch self {
+        case .workspace: "square.stack.3d.up"
+        case .activity: "clock.arrow.circlepath"
+        case .guide: "book.closed"
+        }
+    }
+}
+
+enum JobStatus: String, Codable {
+    case running, completed, failed, cancelled, interrupted
+    var title: String { rawValue.capitalized }
+}
+
+struct JobRecord: Identifiable, Codable {
+    var id: UUID
+    var startedAt: Date
+    var finishedAt: Date?
+    var sourceName: String
+    var status: JobStatus
+    var output: URL
+    var result: SigningResult?
+    var events: [SigningEvent]
+    var failure: String?
+    var recovery: String?
+    var errorCode: String?
+    var entitlementPolicy: EntitlementPolicy
+    var profileCount: Int
+    var injectionNames: [String]
+    var removeExtensions: Bool?
+}
+
+enum ProfileInspection: Sendable {
+    case inspecting
+    case valid(ProvisioningProfile)
+    case invalid(message: String, recovery: String)
+}
+
+@MainActor
+final class WorkspaceModel: ObservableObject {
+    @Published var section: AppSection = .workspace
+    @Published var ipa: URL?
+    @Published var certificate: URL?
+    @Published var password = ""
+    @Published var profiles: [URL] = [] { didSet { refreshProfiles() } }
+    @Published private(set) var profileInspections: [URL: ProfileInspection] = [:]
+    @Published var injections: [URL] = []
+    @Published var bundleIdentifier = ""
+    @Published var displayName = ""
+    @Published var policy: EntitlementPolicy = .strict
+    @Published var removeExtensions = false
+    @Published var history: [JobRecord] = []
+    @Published var activeJobID: UUID?
+    @Published var selectedJobID: UUID?
+    @Published var isRunning = false
+    @Published var isCancelling = false
+    @Published var notice: String?
+    @Published var storageNotice: String?
+    @Published var showAdvanced = false
+    private var task: Task<Void, Never>?
+    private var inspectionTokens: [URL: UUID] = [:]
+    private let historyURL: URL
+
+    init() {
+        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        historyURL = support.appendingPathComponent("LoadSide", isDirectory: true).appendingPathComponent("history.json")
+        loadHistory()
+    }
+
+    var profilesReady: Bool {
+        !profiles.isEmpty && profiles.allSatisfy { url in
+            if case .valid(let profile) = profileInspections[url] { return profile.distribution != "App Store" }
+            return false
+        }
+    }
+    var canSign: Bool { ipa != nil && certificate != nil && profilesReady && !isRunning }
+    var currentJob: JobRecord? { history.first { $0.id == activeJobID } }
+    var selectedJob: JobRecord? { history.first { $0.id == selectedJobID } ?? history.first }
+    var missingInputs: String {
+        if ipa == nil { return "Add an IPA to begin" }
+        if certificate == nil { return "Add a signing certificate" }
+        if profiles.isEmpty { return "Add a provisioning profile" }
+        if profiles.contains(where: { if case .inspecting = profileInspections[$0] { return true }; return false }) {
+            return "Checking provisioning profiles…"
+        }
+        if !profilesReady { return "Resolve provisioning profile errors" }
+        return "Ready to sign and export"
+    }
+
+    func chooseIPA() { selectFiles(kind: .ipa) }
+    func chooseCertificate() { selectFiles(kind: .certificate) }
+    func chooseProfiles() { selectFiles(kind: .profile) }
+    func chooseInjections() { selectFiles(kind: .injection) }
+
+    func inspectProfile(_ url: URL) {
+        let token = UUID()
+        inspectionTokens[url] = token
+        profileInspections[url] = .inspecting
+        Task { [weak self] in
+            let inspection = await Task.detached(priority: .userInitiated) { () -> ProfileInspection in
+                do {
+                    return .valid(try ProvisioningProfile.inspect(url))
+                } catch {
+                    return .invalid(message: error.localizedDescription,
+                                    recovery: (error as? LocalizedError)?.recoverySuggestion ?? "Choose a current, unmodified Apple-issued provisioning profile.")
+                }
+            }.value
+            guard let self, profiles.contains(url), inspectionTokens[url] == token else { return }
+            profileInspections[url] = inspection
+        }
+    }
+
+    private func refreshProfiles() {
+        profileInspections = profileInspections.filter { profiles.contains($0.key) }
+        inspectionTokens = inspectionTokens.filter { profiles.contains($0.key) }
+        for url in profiles where profileInspections[url] == nil { inspectProfile(url) }
+    }
+
+    enum InputKind {
+        case ipa, certificate, profile, injection
+        var extensions: [String] {
+            switch self {
+            case .ipa: ["ipa"]
+            case .certificate: ["p12", "pfx"]
+            case .profile: ["mobileprovision"]
+            case .injection: ["deb", "dylib", "framework"]
+            }
+        }
+        var title: String {
+            switch self {
+            case .ipa: "Choose a decrypted IPA"
+            case .certificate: "Choose a signing certificate"
+            case .profile: "Choose provisioning profiles"
+            case .injection: "Choose libraries or DEB packages"
+            }
+        }
+    }
+
+    private func selectFiles(kind: InputKind) {
+        guard !isRunning else { return }
+        let panel = NSOpenPanel()
+        panel.title = kind.title
+        panel.prompt = "Add"
+        panel.allowsMultipleSelection = kind == .profile || kind == .injection
+        panel.canChooseDirectories = kind == .injection
+        panel.treatsFilePackagesAsDirectories = false
+        panel.allowedContentTypes = kind.extensions.compactMap { UTType(filenameExtension: $0) }
+        panel.begin { [weak self] response in
+            guard response == .OK else { return }
+            self?.accept(panel.urls, kind: kind)
+        }
+    }
+
+    @discardableResult
+    func accept(_ urls: [URL], kind: InputKind? = nil) -> Bool {
+        guard !isRunning else { return false }
+        var accepted = 0
+        var rejected: [String] = []
+        for url in urls {
+            let ext = url.pathExtension.lowercased()
+            guard url.isFileURL, FileManager.default.fileExists(atPath: url.path),
+                  kind == nil || kind!.extensions.contains(ext) else {
+                rejected.append(url.lastPathComponent)
+                continue
+            }
+            switch ext {
+            case "ipa": ipa = url
+            case "p12", "pfx": certificate = url
+            case "mobileprovision":
+                if !profiles.contains(url) { profiles.append(url) }
+            case "deb", "dylib", "framework":
+                if !injections.contains(url) { injections.append(url) }
+            default:
+                rejected.append(url.lastPathComponent)
+                continue
+            }
+            accepted += 1
+        }
+        if !rejected.isEmpty {
+            notice = "Could not add \(rejected.joined(separator: ", ")). Choose an IPA, P12, provisioning profile, DEB, dylib, or framework."
+        }
+        if accepted > 0 { section = .workspace }
+        return accepted > 0
+    }
+
+    func beginSigning() {
+        guard canSign, let ipa else { return }
+        let panel = NSSavePanel()
+        panel.title = "Export signed IPA"
+        panel.prompt = "Sign & Export"
+        panel.allowedContentTypes = [UTType(filenameExtension: "ipa") ?? .data]
+        panel.nameFieldStringValue = ipa.deletingPathExtension().lastPathComponent + "-signed.ipa"
+        panel.canCreateDirectories = true
+        panel.message = "The export is written only after all signing and verification steps succeed."
+        panel.begin { [weak self] response in
+            guard response == .OK, let output = panel.url else { return }
+            self?.run(output: output)
+        }
+    }
+
+    private func run(output: URL) {
+        guard canSign, let ipa, let certificate else { return }
+        if output.standardizedFileURL == ipa.standardizedFileURL {
+            notice = "Choose a different export name. Your original IPA must be preserved."
+            return
+        }
+        if FileManager.default.fileExists(atPath: output.path) {
+            notice = "An export already exists at this destination. Choose a new name to preserve the existing file."
+            return
+        }
+        let request = SigningRequest(
+            ipa: ipa, certificate: certificate, password: password, profiles: profiles,
+            injections: injections, output: output,
+            bundleIdentifier: nonempty(bundleIdentifier), displayName: nonempty(displayName),
+            removeExtensions: removeExtensions, entitlementPolicy: policy
+        )
+        let jobID = UUID()
+        let record = JobRecord(
+            id: jobID, startedAt: Date(), sourceName: ipa.lastPathComponent,
+            status: .running, output: output, events: [], entitlementPolicy: policy,
+            profileCount: profiles.count, injectionNames: injections.map(\.lastPathComponent),
+            removeExtensions: removeExtensions
+        )
+        history.insert(record, at: 0)
+        history = Array(history.prefix(50))
+        activeJobID = jobID
+        selectedJobID = jobID
+        isRunning = true
+        isCancelling = false
+        section = .workspace
+        persistHistory()
+        let secret = password
+        password = ""
+        task = Task { [weak self] in
+            do {
+                let result = try await SigningEngine().run(request, onEvent: { [weak self] event in
+                    Task { @MainActor [weak self] in
+                        self?.receive(event, for: jobID, secret: secret)
+                    }
+                })
+                self?.finish(jobID, result: result)
+            } catch {
+                self?.finish(jobID, error: error, secret: secret)
+            }
+        }
+    }
+
+    private func receive(_ event: SigningEvent, for id: UUID, secret: String) {
+        guard let index = history.firstIndex(where: { $0.id == id }) else { return }
+        let safeMessage = redact(event.message, secret: secret)
+        let safeEvent = SigningEvent(stage: event.stage, fraction: event.fraction, message: safeMessage, level: event.level)
+        history[index].events.append(safeEvent)
+        if history[index].events.count > 1_000 { history[index].events.removeFirst() }
+        persistHistory()
+    }
+
+    private func finish(_ id: UUID, result: SigningResult) {
+        guard let index = history.firstIndex(where: { $0.id == id }) else { return }
+        history[index].status = .completed
+        history[index].result = result
+        history[index].finishedAt = Date()
+        didFinish()
+    }
+
+    private func finish(_ id: UUID, error: Error, secret: String) {
+        guard let index = history.firstIndex(where: { $0.id == id }) else { return }
+        let cancelled = error is CancellationError || (error as? LoadSideError)?.code == "cancelled"
+        history[index].status = cancelled ? .cancelled : .failed
+        history[index].failure = cancelled ? "Signing was cancelled." : redact(error.localizedDescription, secret: secret)
+        history[index].recovery = cancelled
+            ? "Your input files are unchanged. Enter your certificate password again, then start a new export."
+            : (error as? LocalizedError)?.recoverySuggestion.map { redact($0, secret: secret) }
+                ?? "Review the diagnostics, update your inputs, and try again."
+        history[index].errorCode = (error as? LoadSideError)?.code
+        history[index].finishedAt = Date()
+        didFinish()
+    }
+
+    private func didFinish() {
+        isRunning = false
+        isCancelling = false
+        task = nil
+        persistHistory()
+    }
+
+    func cancel() {
+        guard isRunning else { return }
+        isCancelling = true
+        task?.cancel()
+    }
+
+    func reset() {
+        guard !isRunning else { return }
+        ipa = nil; certificate = nil; password = ""
+        profiles = []; injections = []
+        bundleIdentifier = ""; displayName = ""; policy = .strict; removeExtensions = false
+        activeJobID = nil
+    }
+
+    func reveal(_ url: URL) { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+
+    func exportDiagnostics(_ job: JobRecord) {
+        let panel = NSSavePanel()
+        panel.title = "Export diagnostics"
+        panel.allowedContentTypes = [.json]
+        panel.nameFieldStringValue = "LoadSide-\(job.id.uuidString.prefix(8))-diagnostics.json"
+        panel.message = "Includes event messages, source file names, certificate identity, and the export path. Review before sharing. Passwords are never included."
+        panel.begin { [weak self] response in
+            guard response == .OK, let output = panel.url else { return }
+            do {
+                let encoder = JSONEncoder()
+                encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+                encoder.dateEncodingStrategy = .iso8601
+                try encoder.encode(job).write(to: output, options: .atomic)
+                self?.reveal(output)
+            } catch {
+                self?.notice = "Could not save diagnostics: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    func clearHistory() {
+        history.removeAll { $0.id != activeJobID || !isRunning }
+        if !isRunning { activeJobID = nil; selectedJobID = nil }
+        persistHistory()
+    }
+
+    private func loadHistory() {
+        guard FileManager.default.fileExists(atPath: historyURL.path) else { return }
+        do {
+            history = try JSONDecoder().decode([JobRecord].self, from: Data(contentsOf: historyURL))
+            for index in history.indices where history[index].status == .running {
+                history[index].status = .interrupted
+                history[index].failure = "LoadSide closed before this job finished."
+                history[index].recovery = "Start a new signing session. Any existing export should be treated as unverified."
+            }
+            persistHistory()
+        } catch {
+            storageNotice = "Previous activity could not be loaded. Your signing files are unaffected."
+        }
+    }
+
+    private func persistHistory() {
+        do {
+            try FileManager.default.createDirectory(at: historyURL.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+            try JSONEncoder().encode(history).write(to: historyURL, options: .atomic)
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: historyURL.path)
+        } catch {
+            storageNotice = "Activity could not be saved: \(error.localizedDescription)"
+        }
+    }
+
+    private func nonempty(_ value: String) -> String? {
+        let value = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? nil : value
+    }
+
+    private func redact(_ text: String, secret: String) -> String {
+        secret.isEmpty ? text : text.replacingOccurrences(of: secret, with: "[redacted]")
+    }
+}
