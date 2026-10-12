@@ -1,0 +1,25 @@
+name: Bug report
+description: Report a reproducible LoadSide problem
+body:
+  - type: markdown
+    attributes:
+      value: 'Do not attach P12 files, private keys, passwords, provisioning profiles, or proprietary IPAs. Review diagnostics for paths and identifiers before sharing.'
+  - type: input
+    id: version
+    attributes:
+      label: LoadSide and macOS versions
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps and expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Error code and redacted diagnostics
+      render: text
+    validations:
+      required: true
