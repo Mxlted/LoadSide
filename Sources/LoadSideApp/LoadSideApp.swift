@@ -7,31 +7,32 @@ struct LoadSideApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
 
     var body: some Scene {
-        WindowGroup {
-            StudioView(model: model)
-                .preferredColorScheme(.dark)
-                .tint(Studio.mint)
-                .frame(minWidth: 1080, minHeight: 740)
+        WindowGroup("LoadSide") {
+            MainView(model: model)
+                .tint(Palette.accent)
+                .frame(minWidth: 960, minHeight: 680)
                 .onOpenURL { model.accept([$0]) }
                 .onAppear { delegate.model = model }
         }
-        .windowStyle(.hiddenTitleBar)
-        .defaultSize(width: 1240, height: 860)
+        .windowToolbarStyle(.unifiedCompact)
+        .defaultSize(width: 1120, height: 820)
         .commands {
             CommandGroup(replacing: .newItem) {
-                Button("Add IPA…", action: model.chooseIPA).keyboardShortcut("o").disabled(model.isRunning)
-                Button("New Signing Session", action: model.reset).keyboardShortcut("n").disabled(model.isRunning)
+                Button("Open IPA…", action: model.chooseIPA).keyboardShortcut("o").disabled(model.isRunning)
+                Button("New Signing Session", action: model.reset).keyboardShortcut("n").disabled(model.isRunning || model.isManagingSigningProfiles)
             }
             CommandMenu("Signing") {
                 Button("Sign & Export…", action: model.beginSigning).keyboardShortcut("r").disabled(!model.canSign)
                 Button("Cancel Signing", action: model.cancel).keyboardShortcut(".").disabled(!model.isRunning || model.isCancelling)
                 Divider()
-                Button("Add Certificate…", action: model.chooseCertificate).disabled(model.isRunning)
+                Button("Import Certificate…", action: model.chooseCertificate).disabled(model.isRunning)
                 Button("Add Provisioning Profiles…", action: model.chooseProfiles).disabled(model.isRunning)
                 Button("Add Injection…", action: model.chooseInjections).disabled(model.isRunning)
+                Divider()
+                Button("Signing Profiles") { model.section = .signingProfiles }.keyboardShortcut("2")
             }
             CommandGroup(replacing: .help) {
-                Button("LoadSide Guide") { model.section = .guide }
+                Button("LoadSide Help") { model.section = .guide }
             }
         }
     }
@@ -56,88 +57,69 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
-struct StudioView: View {
+struct MainView: View {
     @ObservedObject var model: WorkspaceModel
     var body: some View {
         HStack(spacing: 0) {
             sidebar
-            Rectangle().fill(Studio.line).frame(width: 1)
-            VStack(spacing: 0) {
-                header
-                Rectangle().fill(Studio.line).frame(height: 1)
-                Group {
-                    switch model.section {
-                    case .workspace: WorkspaceView(model: model)
-                    case .activity: ActivityView(model: model)
-                    case .guide: GuideView()
-                    }
-                }.frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-            .background(Studio.background)
+            Divider()
+            Group {
+                switch model.section {
+                case .workspace: WorkspaceView(model: model)
+                case .signingProfiles: SigningProfilesView(model: model)
+                case .activity: ActivityView(model: model)
+                case .guide: GuideView()
+                }
+            }.frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .background(Studio.background)
+        .background(Palette.background)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                HStack(spacing: 8) {
+                    Text(model.section == .workspace ? (model.ipaInspection?.displayName ?? model.ipa?.deletingPathExtension().lastPathComponent ?? "Sign an app") : model.section.rawValue)
+                        .font(.system(size: 13, weight: .semibold)).lineLimit(1)
+                    if model.isRunning {
+                        ProgressView().controlSize(.mini)
+                        Text(model.isCancelling ? "Cancelling…" : "Signing…").font(.system(size: 11)).foregroundStyle(.secondary)
+                    }
+                }
+            }
+            ToolbarItem(placement: .automatic) {
+                Button { model.reset() } label: { Image(systemName: "doc.badge.plus") }
+                    .help("New signing session (⌘N)").accessibilityLabel("New signing session").disabled(model.isRunning || model.isManagingSigningProfiles)
+            }
+        }
         .alert("Unable to complete action", isPresented: Binding(get: { model.notice != nil }, set: { if !$0 { model.notice = nil } })) {
             Button("OK") { model.notice = nil }
         } message: { Text(model.notice ?? "") }
     }
 
     private var sidebar: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 11) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 11).fill(Studio.mint)
-                    Image(systemName: "arrow.up.doc.fill").font(.system(size: 21, weight: .semibold)).foregroundStyle(Studio.background)
-                }.frame(width: 40, height: 40)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("LoadSide").font(.system(size: 19, weight: .bold))
-                    Text("SIGNING STUDIO").font(.system(size: 8, weight: .semibold)).tracking(2.1).foregroundStyle(Studio.muted)
-                }
-            }.padding(.top, 39).padding(.bottom, 40)
-            Text("LIBRARY").font(.system(size: 9, weight: .semibold)).tracking(1.4).foregroundStyle(Studio.muted).padding(.leading, 12).padding(.bottom, 13)
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                Image(systemName: "signature").font(.system(size: 17, weight: .medium)).foregroundStyle(Palette.accent)
+                    .frame(width: 29, height: 29).background(Palette.accent.opacity(0.1), in: RoundedRectangle(cornerRadius: 7))
+                Text("LoadSide").font(.system(size: 15, weight: .semibold))
+            }.padding(.horizontal, 9).padding(.top, 17).padding(.bottom, 24)
             ForEach(AppSection.allCases) { section in
                 Button { model.section = section } label: {
-                    HStack(spacing: 12) {
-                        Image(systemName: section.symbol).font(.system(size: 14)).frame(width: 18)
-                        Text(section.rawValue).font(.system(size: 12, weight: model.section == section ? .semibold : .medium))
-                        Spacer()
-                        if section == .activity, !model.history.isEmpty {
-                            Text("\(model.history.count)").font(.system(size: 10, weight: .medium, design: .monospaced)).foregroundStyle(Studio.muted)
-                        }
-                        if model.section == section { RoundedRectangle(cornerRadius: 2).fill(Studio.mint).frame(width: 3, height: 13) }
+                    HStack(spacing: 10) {
+                        Image(systemName: section.symbol).font(.system(size: 14)).frame(width: 20)
+                        Text(section.rawValue).font(.system(size: 12, weight: model.section == section ? .semibold : .regular))
+                        Spacer(minLength: 0)
+                        if section == .activity, model.isRunning { Circle().fill(Palette.accent).frame(width: 5, height: 5) }
                     }
-                    .foregroundStyle(model.section == section ? Studio.mint : Studio.muted)
-                    .padding(.horizontal, 12).padding(.vertical, 13)
-                    .background(model.section == section ? Studio.mint.opacity(0.07) : .clear, in: RoundedRectangle(cornerRadius: 8))
-                }.buttonStyle(.plain).padding(.bottom, 5)
+                    .foregroundStyle(model.section == section ? Color.primary : Color.secondary)
+                    .padding(.horizontal, 10).padding(.vertical, 9)
+                    .background(model.section == section ? Palette.accent.opacity(0.12) : .clear, in: RoundedRectangle(cornerRadius: 6))
+                    .contentShape(Rectangle())
+                }.buttonStyle(.plain).accessibilityAddTraits(model.section == section ? .isSelected : [])
             }
             Spacer()
-            VStack(alignment: .leading, spacing: 12) {
-                Image(systemName: "lock.shield").font(.system(size: 20, weight: .light)).foregroundStyle(Studio.mint)
-                Text("Your keys. Your machine.").font(.system(size: 12, weight: .semibold))
-                Text("Signing happens locally. Your certificates and apps stay with you.")
-                    .font(.system(size: 11)).foregroundStyle(Studio.muted).lineSpacing(4)
-            }.padding(15).frame(maxWidth: .infinity, alignment: .leading)
-                .background(Studio.background.opacity(0.7), in: RoundedRectangle(cornerRadius: 11))
-            HStack {
-                Text("LOADSIDE").font(.system(size: 8, weight: .semibold)).tracking(1.2)
-                Spacer()
-                Text(Bundle.main.infoDictionary?["LoadSideVersion"] as? String ?? "0.1.0-rc.1").font(.system(size: 10, design: .monospaced))
-            }.foregroundStyle(Studio.muted.opacity(0.65)).padding(.top, 23).padding(.bottom, 23).padding(.horizontal, 3)
-        }.padding(.horizontal, 18).frame(width: 208).background(Studio.sidebar)
-    }
-
-    private var header: some View {
-        HStack {
-            HStack(spacing: 9) {
-                Image(systemName: model.section.symbol).foregroundStyle(Studio.muted)
-                Text("Studio").foregroundStyle(Studio.muted)
-                Text("/").foregroundStyle(Studio.muted.opacity(0.5))
-                Text(model.section.rawValue).foregroundStyle(.white.opacity(0.9))
-            }.font(.system(size: 11))
-            Spacer()
-            Circle().fill(model.isRunning ? Studio.mint : Studio.muted).frame(width: 5, height: 5)
-            Text(model.isRunning ? "SIGNING IN PROGRESS" : "LOCAL WORKSPACE")
-                .font(.system(size: 9, weight: .medium)).tracking(1.2).foregroundStyle(Studio.muted)
-        }.padding(.horizontal, 30).frame(height: 68)
+            VStack(alignment: .leading, spacing: 5) {
+                Label("Local signing", systemImage: "lock").font(.system(size: 10))
+                Text(Bundle.main.infoDictionary?["LoadSideVersion"] as? String ?? "0.1.0-rc.2").font(.system(size: 10, design: .monospaced))
+            }.foregroundStyle(.tertiary).padding(.horizontal, 10).padding(.bottom, 18)
+        }.padding(.horizontal, 10).frame(width: 172).frame(maxHeight: .infinity).background(.ultraThinMaterial)
     }
 }

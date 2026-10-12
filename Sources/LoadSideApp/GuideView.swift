@@ -3,64 +3,54 @@ import SwiftUI
 struct GuideView: View {
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 25) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Know what you’re signing.").font(.system(size: 29, weight: .semibold)).tracking(-0.8)
-                    Text("A practical guide to certificates, app capabilities, and reliable exports.").font(.system(size: 12)).foregroundStyle(Studio.muted)
+            VStack(alignment: .leading, spacing: 24) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("LoadSide Help").font(.system(size: 20, weight: .semibold))
+                    Text("Sign a decrypted IPA using your own certificate and provisioning profiles.")
+                        .font(.system(size: 12)).foregroundStyle(.secondary)
                 }
-                HStack(alignment: .top, spacing: 20) {
-                    VStack(spacing: 20) {
-                        guideCard("01", "A complete signing session", symbol: "checklist", entries: [
-                            ("Add a decrypted IPA", "Use an app you own or are authorized to modify. LoadSide checks the archive and Mach-O binaries. It does not remove FairPlay encryption."),
-                            ("Bring your signing identity", "Your P12 must contain a usable private key and Apple signing certificate. Add the matching mobileprovision files, including profiles for app extensions and nested apps."),
-                            ("Choose an export destination", "LoadSide uses a private temporary workspace, validates inputs, prepares entitlements, signs code from the inside out, and verifies signatures before exporting.")
-                        ])
-                        guideCard("02", "Profiles & entitlements", symbol: "checkmark.seal", entries: [
-                            ("Profiles authorize capabilities", "A provisioning profile controls the team, application identifier, certificate, devices, expiry date, and permitted entitlements. A valid signature alone does not make an app eligible for installation."),
-                            ("Strict is the default", "Signing stops when a requested entitlement is not allowed. Compatible mode can remove unsupported entitlements, but affected capabilities may no longer work."),
-                            ("Changing bundle identifiers", "A new identifier must be authorized by a supplied profile. Keychain groups, app groups, push services, associated domains, and extension relationships need particular care."),
-                            ("Deliberately removing extensions", "If you only have a main-app profile, enable Remove app extensions in Signing options to exclude all .appex bundles from the export. This is off by default. Safari extensions, widgets, share actions, and other extension features will no longer be available. Nested apps still require matching profiles. Your source IPA is preserved, and each removal is recorded in diagnostics.")
-                        ])
-                    }.frame(maxWidth: .infinity)
-                    VStack(spacing: 20) {
-                        guideCard("03", "Injecting libraries", symbol: "puzzlepiece.extension", entries: [
-                            ("DEB, dylib & framework", "DEB packages are unpacked as data. Package scripts are never run. Supported payloads are embedded and executable load commands are updated before all injected code is re-signed."),
-                            ("Supported DEB layout", "MobileSubstrate entry-point filters must target the app. Rootful and /var/jb package layouts are supported, with usr/lib dependencies, Library/Frameworks content, and adjacent resource bundles. Runtime class filters and library-only DEBs need explicit supported library inputs."),
-                            ("Runtime compatibility matters", "A jailbreak tweak may rely on a hooking framework, privileged APIs, or unavailable paths. Supply compatible dependencies. Successful signing cannot guarantee that a tweak will run on an unmodified device."),
-                            ("Inspect the diagnostics", "Unsupported archive content, incompatible architectures, missing dependencies, or insufficient Mach-O space cause an actionable error instead of an incomplete export.")
-                        ])
-                        guideCard("04", "Recovery & privacy", symbol: "lock.shield", entries: [
-                            ("Nothing is uploaded", "The app, certificate, profile, and signing operation remain on this Mac. Certificate passwords are not saved and are cleared from the input field when signing starts."),
-                            ("Cancel and retry", "Cancellation stops the operation and cleans the working directory. Correct the inputs, re-enter the P12 password, and start another export. Your original files are preserved."),
-                            ("Use Activity for evidence", "Each session records pipeline events, errors, and successful export details. Save diagnostics when troubleshooting. Reports can include file names, export paths, and signing identity, so review them before sharing.")
-                        ])
-                    }.frame(maxWidth: .infinity)
-                }
-                StudioCard {
-                    HStack(alignment: .top, spacing: 14) {
-                        Image(systemName: "iphone.and.arrow.forward").font(.system(size: 23, weight: .light)).foregroundStyle(Studio.mint)
-                        VStack(alignment: .leading, spacing: 7) {
-                            Text("Export first. Install with your preferred tool.").font(.system(size: 14, weight: .semibold))
-                            Text("LoadSide produces signed IPA files. Device installation, Apple ID provisioning, certificate renewal, and decryption are outside this workflow. Your device must satisfy the profile’s distribution and registration requirements. Offline validation does not check certificate revocation or prove that an app will install or launch on a device.")
-                                .font(.system(size: 12)).foregroundStyle(Studio.muted).lineSpacing(4)
-                        }
-                    }
-                }
-            }.padding(30)
-        }.scrollIndicators(.hidden)
+                helpSection("Signing an app", symbol: "signature", entries: [
+                    ("Choose the IPA", "Open or drop a decrypted app archive. LoadSide inspects its bundle identifier and extensions before signing. It does not remove FairPlay encryption."),
+                    ("Choose the identity", "Import a P12 with a usable private key and Apple signing certificate, enter its password, and add matching mobileprovision files. Each retained extension and nested app needs a matching profile."),
+                    ("Review the plan", "Automatic keeps an authorized original ID or selects the unique exact app ID from your profiles. The proposed change is shown before signing. Keep original requires that the current ID is authorized; an explicit override takes precedence over either mode."),
+                    ("Sign and export", "Choose a new output location. LoadSide validates credentials and entitlements, signs nested code from the inside out, verifies the result, then writes the IPA. Original inputs remain unchanged.")
+                ])
+                helpSection("Saving signing profiles", symbol: "person.crop.rectangle.stack", entries: [
+                    ("Save once, reuse later", "A saved signing profile groups a private copy of your P12 with its provisioning profiles. Give it a recognizable name, then choose it from the saved-profile menu when signing another app. Profiles are checked again when selected."),
+                    ("Remembering passwords is optional", "Remember password is off by default. When enabled, only the P12 password is stored as a local Keychain password item. Signing identities use a separate temporary keychain for each export. Passwords never appear in job history or diagnostics."),
+                    ("Manage saved profiles", "Use Signing Profiles to select, rename, or delete an identity. Deletion removes saved copies and the remembered password, preserves your original imported files, and clears the signing inputs when that profile was selected.")
+                ])
+                helpSection("Identifiers, extensions, and capabilities", symbol: "checkmark.seal", entries: [
+                    ("An identifier change has consequences", "A profile authorizes a particular application ID and team. Changing the ID can affect keychain access, app groups, push services, and extension relationships. A preflight suggestion checks app-ID authorization; certificate membership is validated during signing."),
+                    ("Extensions are never removed automatically", "The signing plan shows how many extensions are present and which identifiers have no supplied matching profile. Add the missing profiles or explicitly remove all extensions. Removing them disables their features, such as widgets, sharing actions, and notification extensions. Nested apps still need matching profiles."),
+                    ("Strict is the default", "Strict stops if a requested entitlement is unsupported. Compatible explicitly allows unsupported entitlements to be removed and records every removal. Related capabilities may no longer work. Automatic identifier selection never changes this policy."),
+                    ("Profiles determine installation eligibility", "A profile controls certificate membership, app IDs, capabilities, devices, expiry, and distribution. App Store profiles cannot be used for direct installation. Offline validation does not check certificate revocation or prove that an app installs or launches.")
+                ])
+                helpSection("Injecting libraries", symbol: "puzzlepiece.extension", entries: [
+                    ("Supported inputs", "Add DEB packages, dylibs, or frameworks. DEBs are read as data; maintainer scripts are never executed. Supported libraries, frameworks, and resources are staged, load commands are updated, and all injected code is re-signed."),
+                    ("DEB layout and filters", "MobileSubstrate entry-point filters must target the app. Rootful and /var/jb layouts are supported with usr/lib dependencies, Library/Frameworks content, and adjacent resource bundles. Runtime class filters and library-only DEBs require explicit supported library inputs."),
+                    ("Signing does not guarantee runtime compatibility", "A tweak may require a hooking framework, privileged APIs, or paths unavailable on an unmodified device. Supply compatible dependencies. Missing dependencies, incompatible architectures, and insufficient Mach-O header space produce a diagnostic error.")
+                ])
+                helpSection("Troubleshooting", symbol: "stethoscope", entries: [
+                    ("Cancel or retry", "Cancel stops the current operation and cleans temporary work. After a failure, correct the inputs, re-enter the password if needed, and export again. The output is written only after verification succeeds."),
+                    ("Inspect Activity", "Each job records the engine’s events, any errors, and verified export details including a SHA-256 hash. Save Diagnostics exports the record. Reports can include paths, profile details, and certificate names; review them before sharing."),
+                    ("Install separately", "LoadSide exports signed IPAs. Device installation, Apple ID provisioning, certificate renewal, and decryption are outside this workflow. Use an installation tool and a device eligible under the provisioning profile.")
+                ])
+            }.padding(24).frame(maxWidth: 850, alignment: .leading).frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 
-    private func guideCard(_ number: String, _ title: String, symbol: String, entries: [(String, String)]) -> some View {
-        StudioCard {
-            VStack(alignment: .leading, spacing: 21) {
-                HStack {
-                    CardHeading(number: number, title: title)
-                    Image(systemName: symbol).foregroundStyle(Studio.mint).font(.system(size: 17))
-                }
-                ForEach(entries.indices, id: \.self) { index in
-                    VStack(alignment: .leading, spacing: 7) {
-                        Text(entries[index].0).font(.system(size: 12, weight: .semibold))
-                        Text(entries[index].1).font(.system(size: 11)).foregroundStyle(Studio.muted).lineSpacing(4).fixedSize(horizontal: false, vertical: true)
+    private func helpSection(_ title: String, symbol: String, entries: [(String, String)]) -> some View {
+        VStack(alignment: .leading, spacing: 13) {
+            Label(title, systemImage: symbol).font(.system(size: 14, weight: .semibold))
+            Panel {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(entries.indices, id: \.self) { index in
+                        DisclosureGroup(entries[index].0) {
+                            Text(entries[index].1).font(.system(size: 12)).foregroundStyle(.secondary).lineSpacing(3)
+                                .fixedSize(horizontal: false, vertical: true).frame(maxWidth: .infinity, alignment: .leading).padding(.top, 8).padding(.bottom, 4)
+                        }.font(.system(size: 12)).padding(.vertical, 8)
+                        if index < entries.count - 1 { Divider() }
                     }
                 }
             }
