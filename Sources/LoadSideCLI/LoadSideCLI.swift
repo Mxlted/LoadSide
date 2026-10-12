@@ -4,7 +4,7 @@ import LoadSideCore
 
 @main
 struct LoadSideCLI {
-    static let version = "0.1.0-rc.1"
+    static let version = "0.1.0-rc.2"
 
     static func main() async {
         do {
@@ -69,11 +69,16 @@ struct LoadSideCLI {
         guard let entitlementPolicy = EntitlementPolicy(rawValue: policy) else {
             throw LoadSideError("arguments.entitlements", "Unknown entitlement policy: \(policy)", recovery: "Use strict (default) or compatible (explicitly permit dropping unsupported capabilities).")
         }
+        let identifierPolicyValue = options.values["--bundle-id-policy"]?.first ?? "automatic"
+        guard let identifierPolicy = BundleIdentifierPolicy(rawValue: identifierPolicyValue) else {
+            throw LoadSideError("arguments.bundleIdentifierPolicy", "Unknown bundle identifier policy: \(identifierPolicyValue)", recovery: "Use automatic (default) to resolve a unique authorized identifier, or preserve to require the app's current identifier. --bundle-id overrides either policy.")
+        }
         let request = SigningRequest(
             ipa: ipa, certificate: certificate, password: password, profiles: profiles,
             injections: options.values["--inject", default: []].map { URL(fileURLWithPath: $0) }, output: output,
             bundleIdentifier: options.values["--bundle-id"]?.first,
-            displayName: options.values["--name"]?.first, removeExtensions: options.flags.contains("--remove-extensions"), entitlementPolicy: entitlementPolicy
+            displayName: options.values["--name"]?.first, removeExtensions: options.flags.contains("--remove-extensions"), entitlementPolicy: entitlementPolicy,
+            bundleIdentifierPolicy: identifierPolicy
         )
         let json = options.flags.contains("--json")
         let task = Task {
@@ -158,7 +163,8 @@ struct LoadSideCLI {
 
     Options:
       --inject PATH          .deb, .dylib, or .framework; repeat for dependencies
-      --bundle-id ID         Change the root bundle identifier
+      --bundle-id ID         Explicitly set the root bundle identifier
+      --bundle-id-policy P   automatic (default) resolves a unique authorized ID; preserve keeps the original
       --name TEXT            Change the application's display name
       --remove-extensions    Explicitly omit .appex bundles and their features
       --entitlements POLICY strict (default), or compatible to drop unauthorized claims
@@ -176,7 +182,7 @@ struct LoadSideCLI {
 private struct Options {
     var values: [String: [String]] = [:]
     var flags: Set<String> = []
-    static let valueOptions: Set<String> = ["--ipa", "--p12", "--profile", "--output", "--inject", "--bundle-id", "--name", "--entitlements", "--password-file"]
+    static let valueOptions: Set<String> = ["--ipa", "--p12", "--profile", "--output", "--inject", "--bundle-id", "--bundle-id-policy", "--name", "--entitlements", "--password-file"]
     static let flagOptions: Set<String> = ["--password-stdin", "--json", "--remove-extensions"]
     static let repeatable: Set<String> = ["--profile", "--inject"]
 

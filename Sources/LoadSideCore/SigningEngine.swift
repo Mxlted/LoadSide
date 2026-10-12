@@ -19,13 +19,7 @@ public struct SigningEngine: Sendable {
         try Task.checkCancellation()
         try Archive.extract(request.ipa, to: extracted)
         emit(.inspecting, 0.09, "Inspecting the app, extensions, and every executable slice.")
-        let payload = extracted.appendingPathComponent("Payload", isDirectory: true)
-        let payloadType = try payload.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
-        guard payloadType.isDirectory == true, payloadType.isSymbolicLink != true else { throw LoadSideError("ipa.payload", "Payload must be a real directory.") }
-        let apps = try fm.contentsOfDirectory(at: payload, includingPropertiesForKeys: [.isDirectoryKey]).filter { $0.pathExtension.lowercased() == "app" }
-        guard apps.count == 1, let mainApp = apps.first else { throw LoadSideError("ipa.payload", "An IPA must contain exactly one top-level Payload/*.app.") }
-        let mainType = try mainApp.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
-        guard mainType.isDirectory == true, mainType.isSymbolicLink != true else { throw LoadSideError("ipa.payload", "The top-level app must be a real directory.") }
+        let mainApp = try BundleInventory.mainApp(in: extracted)
         var warnings = try BundleInventory.removeEmbeddedExtensions(in: mainApp, enabled: request.removeExtensions)
         for warning in warnings { emit(.inspecting, 0.10, warning, .warning) }
         var bundles = try BundleInventory.discover(in: mainApp)
@@ -52,9 +46,13 @@ public struct SigningEngine: Sendable {
         // Explicit lifetime keeps the private keychain available throughout codesign calls.
         defer { withExtendedLifetime(identity) {} }
         emit(.credentials, 0.25, "Validated signing identity: \(identity.name).")
-        let newIdentifier = request.bundleIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let newIdentifier, !newIdentifier.isEmpty, newIdentifier != main.identifier {
-            try BundleInventory.rewriteIdentifiers(in: bundles, original: main.identifier, replacement: newIdentifier)
+        let identifierPlan = try SigningPreflight.resolveForSigning(original: main.identifier, profiles: profiles, certificate: identity.certificate,
+                                                                   policy: request.bundleIdentifierPolicy, override: request.bundleIdentifier)
+        if identifierPlan.changesIdentifier {
+            try BundleInventory.rewriteIdentifiers(in: bundles, original: main.identifier, replacement: identifierPlan.effectiveIdentifier)
+            let warning = "Changed bundle identifier \(main.identifier) → \(identifierPlan.effectiveIdentifier) to match the selected profile. Prefix-related nested identifiers follow this change; existing app data and runtime bundle-identifier checks are not migrated."
+            warnings.append(warning)
+            emit(.credentials, 0.27, warning, .warning)
         }
         if let name = request.displayName?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty {
             var info = try BundleInventory.readInfo(main.url.appendingPathComponent("Info.plist"))
@@ -69,7 +67,18 @@ public struct SigningEngine: Sendable {
         var teams = Set<String>()
         for (index, bundle) in bundles.filter(\.requiresProfile).enumerated() {
             try Task.checkCancellation()
-            let profile = try ProvisioningProfile.select(from: profiles, bundleIdentifier: bundle.identifier, certificate: identity.certificate)
+            let profile: ProvisioningProfile
+            do {
+                profile = try ProvisioningProfile.select(from: profiles, bundleIdentifier: bundle.identifier, certificate: identity.certificate)
+            } catch let error as LoadSideError where error.code == "profile.noMatch" {
+                if bundle.url.pathExtension.lowercased() == "appex" {
+                    throw LoadSideError("profile.extensionNoMatch", "The retained extension \(bundle.identifier) has no matching profile for the selected certificate. The main app’s profile does not automatically authorize extension IDs.", recovery: "Add a profile for this extension, or explicitly enable Remove Extensions to omit extension functionality. The original IPA will remain unchanged.")
+                }
+                if bundle.url != mainApp {
+                    throw LoadSideError("profile.nestedAppNoMatch", "Nested app \(bundle.identifier) needs its own matching profile for the selected certificate.", recovery: "Add a matching profile for this nested app. Remove Extensions does not remove nested apps such as Watch apps.")
+                }
+                throw error
+            }
             let executableInfo = try MachO.inspect(bundle.executable)
             guard executableInfo.slices.allSatisfy({ $0.platform.map { profile.supports(machOPlatform: $0) } ?? true }) else {
                 throw LoadSideError("profile.platform", "Profile “\(profile.name)” does not authorize the Mach-O platform of \(bundle.identifier).")
@@ -152,8 +161,8 @@ public struct SigningEngine: Sendable {
         guard request.ipa.isFileURL, try request.ipa.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true else { throw LoadSideError("request.ipa", "The source IPA must be a regular local file.") }
         guard request.output.isFileURL, request.output.pathExtension.lowercased() == "ipa" else { throw LoadSideError("request.output", "Choose a local output file ending in .ipa.") }
         guard !FileManager.default.fileExists(atPath: request.output.path) else { throw LoadSideError("output.exists", "An output file already exists at this destination.", recovery: "Choose another output name. LoadSide never overwrites an existing export.") }
-        if let identifier = request.bundleIdentifier, !identifier.isEmpty {
-            guard identifier.count <= 255, identifier.contains("."), identifier.split(separator: ".", omittingEmptySubsequences: false).allSatisfy({ !$0.isEmpty && $0.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-") }) }) else { throw LoadSideError("request.bundleID", "The bundle identifier must use nonempty dot-separated ASCII letters, digits, and hyphens.") }
+        if let identifier = request.bundleIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines), !identifier.isEmpty {
+            try SigningPreflight.validateIdentifier(identifier)
         }
         for input in [request.ipa, request.certificate] + request.profiles + request.injections {
             guard input.isFileURL, FileManager.default.isReadableFile(atPath: input.path) else { throw LoadSideError("request.input", "Cannot read input \(input.lastPathComponent).") }
@@ -184,6 +193,17 @@ struct CodeBundle {
 }
 
 enum BundleInventory {
+    static func mainApp(in extracted: URL) throws -> URL {
+        let payload = extracted.appendingPathComponent("Payload", isDirectory: true)
+        let payloadType = try payload.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+        guard payloadType.isDirectory == true, payloadType.isSymbolicLink != true else { throw LoadSideError("ipa.payload", "Payload must be a real directory.") }
+        let apps = try FileManager.default.contentsOfDirectory(at: payload, includingPropertiesForKeys: [.isDirectoryKey]).filter { $0.pathExtension.lowercased() == "app" }
+        guard apps.count == 1, let mainApp = apps.first else { throw LoadSideError("ipa.payload", "An IPA must contain exactly one top-level Payload/*.app.") }
+        let mainType = try mainApp.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+        guard mainType.isDirectory == true, mainType.isSymbolicLink != true else { throw LoadSideError("ipa.payload", "The top-level app must be a real directory.") }
+        return mainApp
+    }
+
     static func ensureExecutablePermissions(in app: URL) throws {
         // ZIPs produced on filesystems without Unix permissions can lose +x.
         // Normalize only actual staged code, never unrelated resource files.

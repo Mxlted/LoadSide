@@ -14,6 +14,7 @@ public struct ProvisioningProfile: @unchecked Sendable {
     public let deviceCount: Int
     public let provisionsAllDevices: Bool
     public let platforms: [String]
+    public var bundleIdentifierPattern: String { String(applicationIdentifier.dropFirst(appIdentifierPrefix.count + 1)) }
     public var distribution: String { provisionsAllDevices ? "Enterprise" : (deviceCount > 0 ? ((entitlements["get-task-allow"] as? Bool == true) ? "Development" : "Ad Hoc") : "App Store") }
     let entitlements: [String: Any]
     let developerCertificates: [Data]
@@ -55,7 +56,8 @@ public struct ProvisioningProfile: @unchecked Sendable {
         self.platforms = dict["Platform"] as? [String] ?? []
     }
 
-    func matches(bundleIdentifier: String) -> Bool {
+    /// Tests the profile's App ID pattern only; this does not validate a signing certificate.
+    public func matches(bundleIdentifier: String) -> Bool {
         EntitlementResolver.matches("\(appIdentifierPrefix).\(bundleIdentifier)", allowed: applicationIdentifier)
     }
 
@@ -68,7 +70,9 @@ public struct ProvisioningProfile: @unchecked Sendable {
         let candidates = profiles.filter { $0.matches(bundleIdentifier: bundleIdentifier) && $0.developerCertificates.contains(certificate) }
             .sorted { $0.specificity > $1.specificity }
         guard let best = candidates.first else {
-            throw LoadSideError("profile.noMatch", "No profile authorizes \(bundleIdentifier) with the selected certificate.", recovery: "Add a matching profile for every app and extension. Its DeveloperCertificates must include this P12’s certificate.")
+            let authorized = profiles.filter { $0.developerCertificates.contains(certificate) }.map(\.bundleIdentifierPattern).sorted()
+            let allowed = Array(Set(authorized)).sorted().prefix(6).joined(separator: ", ")
+            throw LoadSideError("profile.noMatch", "No profile authorizes \(bundleIdentifier) with the selected certificate. Profile App IDs: \(allowed.isEmpty ? "none for this certificate" : allowed).", recovery: "The certificate identifies the signer; the profile controls permitted bundle IDs. Use Automatic bundle ID selection, enter an authorized override, or add matching profiles for retained apps and extensions.")
         }
         let equal = candidates.filter { $0.specificity == best.specificity && $0.uuid != best.uuid }
         guard equal.isEmpty else { throw LoadSideError("profile.ambiguous", "Several profiles match \(bundleIdentifier) equally well.", recovery: "Remove the extra matching profiles so each bundle has an unambiguous profile.") }

@@ -8,16 +8,25 @@ public struct SigningRequest: Sendable {
     public var injections: [URL]
     public var output: URL
     public var bundleIdentifier: String?
+    public var bundleIdentifierPolicy: BundleIdentifierPolicy
     public var displayName: String?
     public var removeExtensions: Bool
     public var entitlementPolicy: EntitlementPolicy
-    public init(ipa: URL, certificate: URL, password: String, profiles: [URL], injections: [URL] = [], output: URL, bundleIdentifier: String? = nil, displayName: String? = nil, removeExtensions: Bool = false, entitlementPolicy: EntitlementPolicy = .strict) {
+    public init(ipa: URL, certificate: URL, password: String, profiles: [URL], injections: [URL] = [], output: URL, bundleIdentifier: String? = nil, displayName: String? = nil, removeExtensions: Bool = false, entitlementPolicy: EntitlementPolicy = .strict, bundleIdentifierPolicy: BundleIdentifierPolicy = .automatic) {
         self.ipa = ipa; self.certificate = certificate; self.password = password
         self.profiles = profiles; self.injections = injections; self.output = output
         self.bundleIdentifier = bundleIdentifier; self.displayName = displayName
+        self.bundleIdentifierPolicy = bundleIdentifierPolicy
         self.removeExtensions = removeExtensions
         self.entitlementPolicy = entitlementPolicy
     }
+}
+
+public enum BundleIdentifierPolicy: String, Codable, Sendable, CaseIterable {
+    /// Keep an authorized original ID, otherwise use one unambiguous exact profile App ID.
+    case automatic
+    /// Require profiles to authorize the source ID unless an explicit override is supplied.
+    case preserve
 }
 
 public enum EntitlementPolicy: String, Codable, Sendable, CaseIterable {
