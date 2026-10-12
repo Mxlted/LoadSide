@@ -9,11 +9,13 @@ public struct SigningRequest: Sendable {
     public var output: URL
     public var bundleIdentifier: String?
     public var displayName: String?
+    public var removeExtensions: Bool
     public var entitlementPolicy: EntitlementPolicy
-    public init(ipa: URL, certificate: URL, password: String, profiles: [URL], injections: [URL] = [], output: URL, bundleIdentifier: String? = nil, displayName: String? = nil, entitlementPolicy: EntitlementPolicy = .strict) {
+    public init(ipa: URL, certificate: URL, password: String, profiles: [URL], injections: [URL] = [], output: URL, bundleIdentifier: String? = nil, displayName: String? = nil, removeExtensions: Bool = false, entitlementPolicy: EntitlementPolicy = .strict) {
         self.ipa = ipa; self.certificate = certificate; self.password = password
         self.profiles = profiles; self.injections = injections; self.output = output
         self.bundleIdentifier = bundleIdentifier; self.displayName = displayName
+        self.removeExtensions = removeExtensions
         self.entitlementPolicy = entitlementPolicy
     }
 }
@@ -24,7 +26,7 @@ public enum EntitlementPolicy: String, Codable, Sendable, CaseIterable {
 }
 
 public enum SigningStage: String, Codable, Sendable, CaseIterable {
-    case preparing, inspecting, credentials, injecting, entitlements, signing, verifying, exporting, completed
+    case preparing, inspecting, credentials, entitlements, injecting, signing, verifying, exporting, completed
     public var title: String {
         switch self {
         case .preparing: "Prepare workspace"

@@ -19,4 +19,7 @@ dist/
 *.key
 *.deb
 .xcodebuildmcp/
+test_materials/
+*password*.txt
+*pass.txt
 
