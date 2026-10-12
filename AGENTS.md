@@ -14,10 +14,12 @@ LoadSide is a native macOS application and CLI for locally signing decrypted iOS
 1. Never modify source IPAs, P12 files, profiles, or DEBs. Stage work in a private per-job directory and clean it on success, failure, and cancellation.
 2. Never import user identities into the login keychain. Use a dedicated temporary keychain and remove it after use.
 3. Never log passwords, private key bytes, or environment values. Do not commit signing material or customer archives.
+   Saved signing profiles may retain explicitly imported credential files in private Application Support storage. Remembered passwords require explicit opt-in and macOS Keychain; never store them in metadata or history. Profile removal must remove its remembered password and managed copies without touching originals.
 4. Validate every extracted path, link, file type, and size. Never execute DEB maintainer scripts or extracted binaries.
 5. Never claim to decrypt an IPA. Reject encrypted Mach-O code. Reject unsupported patching when safe header space is absent.
 6. Sign nested code explicitly from the inside out, with per-bundle entitlements and profiles. Do not use `codesign --deep` to sign.
 7. Strict entitlement reconciliation is the default. Any capability removal requires the explicit compatible policy and visible diagnostics.
+   Automatic bundle identifier resolution must use an unambiguous profile-authorized identifier and report the change. It never bypasses certificate membership, profile validity, per-extension profiles, or device restrictions.
 8. Verify before exporting. Do not overwrite an existing output. Cancellation and failures must not leave a partial final IPA.
 9. Never describe a local ad-hoc build as Developer ID signed, notarized, or device-qualified. Record exactly what was verified.
 

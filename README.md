@@ -2,12 +2,14 @@
 
 A native macOS workspace for signing decrypted iOS apps with your own **P12 certificate and provisioning profiles**. Select an IPA, add signing material, optionally inject compatible libraries, and export a verified IPA. Everything runs on your Mac.
 
-**Status: 0.1.0-rc.1 — release candidate for local evaluation.** The repository contains a real signing engine, desktop app, CLI, tests, and release tooling. A local build is not a notarized public release. See [delivery status](docs/STATUS.md) for verification evidence and outstanding qualification.
+**Status: 0.1.0-rc.2 — release candidate for local evaluation.** The repository contains a real signing engine, desktop app, CLI, tests, and release tooling. A local build is not a notarized public release. See [delivery status](docs/STATUS.md) for verification evidence and outstanding qualification.
 
 ## What it does
 
 - Imports PKCS#12 signing identities into an isolated, temporary keychain.
 - Checks certificate validity, signed provisioning profiles, bundle identifiers, and profile authorization for each app and extension.
+- Resolves a unique profile-authorized app identifier automatically and previews identifier and extension compatibility before signing.
+- Saves reusable signing profiles with private local copies of P12/provisioning files and optional password storage in macOS Keychain.
 - Reconciles entitlements with a strict default; an explicit compatible mode can drop unsupported claims with diagnostics.
 - Keeps app extensions by default; an explicit option can omit them when you only have a main-app profile.
 - Extracts IPA and DEB archives with path, link, file type, and expansion limits.
@@ -42,16 +44,18 @@ scripts/package.sh --local
 open "dist/LoadSide-$(cat VERSION)-local/LoadSide.app"
 ```
 
-Local packaging builds universal binaries and produces an ad-hoc signed `.app`, ZIP, and SHA-256 checksum in `dist/`. The unpacked app is version-specific: `dist/LoadSide-0.1.0-rc.1-local/LoadSide.app`. Packaging refuses to overwrite existing artifacts. It is intended for local testing. Production packaging requires Developer ID signing and notarization; see [release instructions](docs/RELEASING.md).
+Local packaging builds universal binaries and produces an ad-hoc signed `.app`, ZIP, and SHA-256 checksum in `dist/`. The unpacked app is version-specific: `dist/LoadSide-0.1.0-rc.2-local/LoadSide.app`. Packaging refuses to overwrite existing artifacts. It is intended for local testing. Production packaging requires Developer ID signing and notarization; see [release instructions](docs/RELEASING.md).
 
 ## Use the app
 
-1. Add the source `.ipa` in Workspace.
-2. Select the `.p12`, enter its password, and add `.mobileprovision` files. Empty passwords are supported for unprotected identities.
-3. Optionally add `.deb`, `.dylib`, or `.framework` inputs and review the compatibility guidance.
-4. Set an optional app name or bundle identifier. Leave entitlement handling on **Strict** unless you intentionally accept capability removal. If you only have a main-app profile, you can explicitly remove app extensions; their features will be unavailable.
-5. Choose a new export location and start signing. Review the event log if validation fails; fix the indicated input and retry.
-6. Reveal the verified IPA in Finder. Activity retains result metadata and diagnostics locally; it never saves passwords or private keys.
+1. Add the source `.ipa` in **Sign**. LoadSide inspects the app and lists its extensions.
+2. Select a saved signing profile, or import the `.p12` and `.mobileprovision` files. Enter the P12 password; empty passwords are supported. Save the combination for reuse from **Signing Profiles**. Remembering the password is optional and uses macOS Keychain.
+3. Review the signing plan. **Automatic** preserves the original identifier if authorized; otherwise it uses a single unambiguous explicit identifier from the matching profile. You can choose **Preserve** or enter an override.
+4. If extensions lack matching profiles, add their profiles or explicitly remove the extensions and their features. Leave entitlement handling on **Strict** unless you intentionally accept capability removal.
+5. Optionally add `.deb`, `.dylib`, or `.framework` inputs, choose a new export location, and sign. Review diagnostics if validation fails, correct the indicated input and retry.
+6. Reveal the verified IPA in Finder. Activity retains result metadata and diagnostics locally; it never saves passwords or private key material.
+
+A certificate can sign different apps, but its provisioning profile still limits app identifiers, entitlements and devices. An explicit profile cannot preserve arbitrary app identifiers. Reusing its identifier for multiple exports means those apps occupy the same installation identity on a device. LoadSide reports identifier changes and never bypasses profile authorization.
 
 ## CLI
 

@@ -12,7 +12,7 @@ func drawIcon(size: Int) throws -> Data {
     context.scaleBy(x: CGFloat(size) / 1024, y: CGFloat(size) / 1024)
     let rect = NSRect(x: 36, y: 36, width: 952, height: 952)
     let shape = NSBezierPath(roundedRect: rect, xRadius: 220, yRadius: 220)
-    let background = NSGradient(starting: NSColor(red: 0.10, green: 0.18, blue: 0.24, alpha: 1), ending: NSColor(red: 0.035, green: 0.075, blue: 0.11, alpha: 1))!
+    let background = NSGradient(starting: NSColor(red: 0.19, green: 0.21, blue: 0.30, alpha: 1), ending: NSColor(red: 0.065, green: 0.075, blue: 0.12, alpha: 1))!
     background.draw(in: shape, angle: -70)
     NSColor(white: 1, alpha: 0.11).setStroke()
     shape.lineWidth = 3
@@ -34,7 +34,7 @@ func drawIcon(size: Int) throws -> Data {
     tray.lineWidth = 57
     tray.lineCapStyle = .round
     tray.lineJoinStyle = .round
-    NSColor(red: 0.25, green: 0.86, blue: 0.73, alpha: 1).setStroke()
+    NSColor(red: 0.47, green: 0.54, blue: 0.98, alpha: 1).setStroke()
     tray.stroke()
     let arrow = NSBezierPath()
     arrow.move(to: NSPoint(x: 512, y: 781))
@@ -45,7 +45,7 @@ func drawIcon(size: Int) throws -> Data {
     arrow.lineWidth = 65
     arrow.lineCapStyle = .round
     arrow.lineJoinStyle = .round
-    NSColor(red: 0.80, green: 0.98, blue: 0.93, alpha: 1).setStroke()
+    NSColor(red: 0.92, green: 0.94, blue: 1.0, alpha: 1).setStroke()
     arrow.stroke()
     NSShadow().set()
     image.unlockFocus()

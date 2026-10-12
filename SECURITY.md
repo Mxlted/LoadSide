@@ -6,7 +6,8 @@ LoadSide handles private signing identities and untrusted archives. Keep signing
 
 - Source files are read and staged; they are not modified in place.
 - Per-job temporary keychains isolate imported private keys from the login keychain.
-- Passwords are held only for the active operation, never persisted in history or diagnostic reports and never supplied as subprocess arguments.
+- Passwords are never persisted in history, diagnostic reports or profile metadata, and never supplied as subprocess arguments. Explicitly remembered passwords use macOS Keychain generic-password items; signing identities still use disposable per-job keychains.
+- Saved signing profiles copy imported P12 and provisioning files into private local storage. Preserve strong P12 passwords: file permissions do not add cryptographic protection to an unprotected P12.
 - IPA/DEB extraction validates paths, symbolic links, entry types, duplicates, and resource limits. DEB maintainer scripts and payload executables are never run.
 - Mach-O changes require supported formats and verified header capacity.
 - Profiles authorize each bundle's certificate, identity, and entitlements. Offline verification is not an installation guarantee.

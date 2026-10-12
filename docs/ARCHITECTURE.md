@@ -14,7 +14,7 @@ The app and CLI depend on `LoadSideCore`. `SigningRequest` is immutable job inpu
 2. Extract the IPA with bounded streaming I/O. Reject path traversal, unsafe links, special files, collisions, malformed archives, and excessive expansion.
 3. If explicitly requested, remove app-extension bundles from the staged copy and report each removal. Discover the retained application and nested code; inspect binaries for malformed structures and active encryption.
 4. Validate CMS profiles and import a P12 identity into a private temporary keychain. Check expiry and exact certificate inclusion.
-5. Apply requested app metadata changes. Select a profile for every retained provisioned bundle, reconcile its claimed entitlements, and embed its selected profile. Derive app/team identity correctly and surface every policy-driven omission.
+5. Resolve app identity using certificate-compatible profiles. Automatic mode preserves an authorized original ID or selects one unique exact replacement; Preserve forbids automatic changes and an explicit override takes precedence. Apply metadata changes, select a profile for every retained provisioned bundle, reconcile its claimed entitlements, and embed its selected profile. Surface every identity change and policy-driven omission.
 6. Stage optional injection payloads. Validate dependency paths and architecture compatibility; only patch within verified Mach-O header space.
 7. Re-inspect all code after injection and normalize staged executable permissions. Replace signatures explicitly from deepest to outermost; the root app is last.
 8. Verify signed code and package the result. Calculate the output SHA-256 and commit to a new output path. Report success only after commit.
@@ -27,6 +27,14 @@ The engine does not execute code from imported archives. File names and subproce
 A provisioning profile is an authorization allowlist, not a template to copy wholesale. Existing app entitlements are reconciled against the new profile; identity entitlements are rebuilt for the selected application identifier and team. The strict policy fails on unsupported claims. The compatible policy reports dropped claims and can change app behavior. It cannot create capabilities that the profile does not authorize.
 
 Each retained extension or companion app is a separate signing boundary. A main-app profile is not automatically valid for an extension. Extension removal is an explicit, default-off choice that removes `.appex` bundles and their features from the export; nested companion apps remain and still require matching profiles. Ambiguous profile matches fail rather than choosing based on an incidental input order.
+
+`SigningPreflight` safely inspects an IPA in a temporary workspace before signing and supplies the client with app/extension identifiers. Its profile-only identifier suggestion lets the interface explain changes and missing extension profiles early. The engine repeats validation with the actual P12 certificate; preflight is never a substitute for authorization.
+
+## Saved signing profiles
+
+`SavedSigningProfileStore` is an actor owning private copies of imported P12/provisioning files, per-profile manifests, and the last selected profile. Saving validates the real identity and signed profiles before publishing a complete record. Selecting verifies saved-file integrity and profile validity again. UUID directory names, bounded regular-file reads and atomic metadata updates prevent user-visible names from becoming filesystem paths. Original imported files remain independent and unchanged.
+
+Optional remembered passwords use a namespaced, non-synchronizable macOS Keychain generic-password item. The UI requires explicit opt-in; metadata and history contain no password. Signing private keys still use only disposable per-job keychains. Deleting a saved profile removes its managed files and remembered password. Corrupt or incomplete records are reported and preserved for explicit recovery rather than silently discarded.
 
 ## Injection contract
 

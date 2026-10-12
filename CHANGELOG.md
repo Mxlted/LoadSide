@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.0-rc.2 — 2026-10-12
+
+- Resolve a unique certificate-compatible app identifier automatically, with an explicit Preserve policy and manual override. Explain profile authorization instead of failing with a generic main-app mismatch.
+- Inspect app identifiers and retained extensions before export; expose changes and missing extension profiles in the signing plan.
+- Add reusable signing profiles with validated private copies, rename/delete management, integrity and expiry checks, and optional macOS Keychain password storage.
+- Replace the marketing-style workspace with a compact native macOS layout, system-aware appearance, restrained accent color, persistent export controls and focused signing/activity views.
+- Discover DEB resource bundles nested under package-specific Application Support directories and embed them at the app root. Reject resource collisions and hidden executable content before mutation.
+- Test the actual supplied Cercube DEB against the decrypted IPA in `deb_test`; record detailed verification and remaining device-runtime limits in the delivery status.
+
 ## 0.1.0-rc.1 — 2026-10-12
 
 Initial native macOS release candidate. Not yet qualified for public production distribution.

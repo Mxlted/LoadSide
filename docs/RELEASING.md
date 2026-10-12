@@ -17,6 +17,9 @@ Record the exact commit, macOS version, Xcode version, device model/OS, distribu
 - [ ] Keep extensions with only a main-app profile: fail with an actionable missing-profile diagnostic and no final export.
 - [ ] Explicitly remove extensions: record each removal, export with matching profiles for all retained apps, verify the source IPA is unchanged, install, and confirm the main app works with extension features absent.
 - [ ] Wildcard and explicit profiles; team/app-prefix handling and keychain groups.
+- [ ] Automatic and Preserve app-ID policies: exact-profile rewrite, wildcard preservation, ambiguous profiles, explicit override, and correct nested identifiers.
+- [ ] Save identity, relaunch, reuse with and without remembered password, deny Keychain access, rename/delete, corrupt metadata and expired saved material.
+- [ ] Nested DEB resource bundles at app root: preserve bytes, reject collisions/hidden executable content, and verify actual tweak resource lookup on device.
 - [ ] Compatible DEB with resources and a supplied dependency: inject, sign, install, and exercise its behavior.
 - [ ] Unsatisfied tweak dependency and architecture mismatch: actionable failure before export.
 - [ ] Entitlement mismatch: strict rejects; compatible produces explicit omissions and expected runtime behavior.

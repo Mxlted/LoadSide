@@ -16,7 +16,9 @@ LoadSide exports signed IPAs. Installation and runtime behavior depend on Apple'
 | Extension / companion app | Needs a matching profile and separately resolved entitlements |
 | Simulator / macOS code inside IPA | Rejected |
 
-Bundle identifier changes update the root and matching nested identifier prefixes and supported Watch references. They cannot recreate associated services, app groups, push credentials, keychain contents, or arbitrary identifiers encoded in the app's own resources or code.
+The default **Automatic** identifier policy preserves an authorized original identifier; otherwise it uses one unambiguous explicit identifier from certificate-compatible profiles. Multiple possible identifiers fail with guidance to choose an override. Wildcard mismatches are not resolved by inventing an identifier. Use CLI `--bundle-id-policy preserve` to prohibit automatic changes; `--bundle-id` explicitly overrides either policy. Preflight suggestions use profile metadata; the engine checks the actual selected certificate before signing.
+
+Bundle identifier changes update the root and matching nested identifier prefixes and supported Watch references. They cannot recreate associated services, app groups, push credentials, keychain contents, or arbitrary identifiers encoded in the app's own resources or code. An explicit profile does not authorize arbitrary original identifiers: multiple exports using the same authorized identifier replace one another when installed on the same device.
 
 **Remove app extensions** (CLI `--remove-extensions`) explicitly omits `.appex` bundles from the staged application. It defaults off. This can enable export with only a main-app profile, at the cost of extension features such as Safari integration or notification processing. Removals are recorded in diagnostics. Nested Watch/companion apps are not silently removed and still require valid profiles.
 
@@ -31,13 +33,13 @@ Recognized DEB payload locations include rootful paths and their `/var/jb/` vari
 - `Library/MobileSubstrate/DynamicLibraries`: matching tweak dylibs and static filters.
 - `usr/lib`: library dependencies.
 - `Library/Frameworks`: framework dependencies.
-- Adjacent `.bundle` resources and `.bundle` directories under `Library/Application Support`.
+- Adjacent `.bundle` resources and recursively discovered `.bundle` directories under `Library/Application Support`, including package-specific subdirectories.
 
 Static bundle/executable filters are evaluated. Runtime class and OS-dependent filter conditions are rejected when they cannot be established safely before launch. No maintainer script, daemon, launch service, preference installer, or package executable is run.
 
 Libraries must provide compatible architecture slices. Dependency/install paths are rewritten to embedded locations. Missing dependencies produce an error; LoadSide does not bundle a hooking runtime or fabricate compatibility for Substrate, Substitute, libhooker, root privileges, or jailbreak services.
 
-Resources are copied under the app's `Frameworks` directory. Libraries must locate their resources portably. Absolute filesystem resource references, runtime `dlopen` strings, privileged APIs, and arbitrary application behavior are not rewritten.
+Standalone DEB resource bundles are copied to the app root for main-bundle resource lookup. Resources owned by a framework remain inside that framework. Name collisions, symlinked resource bundles and executable code hidden in resource bundles are rejected. Libraries must locate their resources portably. Absolute filesystem resource references, runtime `dlopen` strings, privileged APIs, and arbitrary application behavior are not rewritten.
 
 Mach-O edits are limited to supported thin/universal formats and verified zero-filled header capacity. If a longer load command does not fit, injection fails without shifting executable data. Rebuild the library/application with adequate header padding when you control its source.
 
@@ -49,6 +51,6 @@ Mach-O inspection accepts files up to 512 MiB and bounds load-command data to 16
 
 Common gzip, bzip2, xz, lzma and uncompressed DEB payloads use built-in system libarchive filters. Zstandard support depends on the macOS system library. A filter requiring an external program is rejected; LoadSide never shells out to install or execute an arbitrary decompressor.
 
-Only one job runs at a time in the desktop app. The UI retains up to 50 local job records and bounds recorded events. Passwords are not retained for a retry; re-enter them. Final export paths must be new files. No automatic certificate renewal, Apple ID login, app decryption, Windows/Linux client, or device installation is included in this release candidate.
+Only one job runs at a time in the desktop app. The UI retains up to 50 local job records and bounds recorded events. Saved signing profiles retain private copies of imported P12/provisioning files. Passwords are remembered only when explicitly requested, through macOS Keychain, and never written into history or local profile metadata. Without a remembered password, re-enter it for a retry. Final export paths must be new files. No automatic certificate renewal, Apple ID login, app decryption, Windows/Linux client, or device installation is included in this release candidate.
 
 These limits are explicit product boundaries. Device installation, capability behavior, DEB runtime operation, and minimum-macOS compatibility require the release qualification matrix; local signature verification alone is insufficient.
