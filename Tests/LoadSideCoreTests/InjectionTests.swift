@@ -65,6 +65,54 @@ final class InjectionTests: XCTestCase {
             XCTAssertThrowsError(try Injection.inject(inputs: [deb], into: app, executable: binary, workspace: root))
         }
     }
+    func testDEBRetainsNestedApplicationSupportResourcesAtAppRoot() throws {
+        for prefix in ["", "var/jb/"] {
+            let root = try BinaryFixtures.temporaryDirectory(); defer { try? FileManager.default.removeItem(at: root) }
+            let (app, binary) = try app(in: root), deb = root.appendingPathComponent("Resources.deb")
+            let icon = Data("resource image fixture".utf8)
+            try ArchiveFixtures.deb(data: ArchiveFixtures.tar([
+                .init(path: prefix + "Library/MobileSubstrate/DynamicLibraries/Tweak.dylib", data: BinaryFixtures.macho(fileType: 6)),
+                .init(path: prefix + "Library/Application Support/Package/Assets.bundle/icon.png", data: icon)
+            ])).write(to: deb)
+            let result = try Injection.inject(inputs: [deb], into: app, executable: binary, workspace: root)
+            XCTAssertEqual(result.injectedLibraries.count, 1)
+            XCTAssertEqual(try Data(contentsOf: app.appendingPathComponent("Assets.bundle/icon.png")), icon)
+            XCTAssertFalse(FileManager.default.fileExists(atPath: app.appendingPathComponent("Frameworks/Assets.bundle").path))
+            XCTAssertTrue(result.warnings.contains { $0.contains("Embedded resource bundle Assets.bundle") })
+        }
+    }
+    func testResourceBundleCollisionAndHiddenCodeFailBeforeInjection() throws {
+        for hiddenCode in [false, true] {
+            let root = try BinaryFixtures.temporaryDirectory(); defer { try? FileManager.default.removeItem(at: root) }
+            let (app, binary) = try app(in: root), deb = root.appendingPathComponent("Resources.deb")
+            let original = try Data(contentsOf: binary)
+            if !hiddenCode {
+                try FileManager.default.createDirectory(at: app.appendingPathComponent("Assets.bundle"), withIntermediateDirectories: false)
+            }
+            try ArchiveFixtures.deb(data: ArchiveFixtures.tar([
+                .init(path: "Library/MobileSubstrate/DynamicLibraries/Tweak.dylib", data: BinaryFixtures.macho(fileType: 6)),
+                .init(path: "Library/Application Support/Package/Assets.bundle/resource", data: hiddenCode ? BinaryFixtures.macho(fileType: 6) : Data("asset".utf8))
+            ])).write(to: deb)
+            XCTAssertThrowsError(try Injection.inject(inputs: [deb], into: app, executable: binary, workspace: root)) { error in
+                XCTAssertEqual((error as? LoadSideError)?.code, hiddenCode ? "injection.nestedCode" : "injection.collision")
+            }
+            XCTAssertEqual(try Data(contentsOf: binary), original)
+            XCTAssertFalse(FileManager.default.fileExists(atPath: app.appendingPathComponent("Frameworks/Tweak.dylib").path))
+        }
+    }
+    func testDuplicateNestedResourceBundleNamesAreRejected() throws {
+        let root = try BinaryFixtures.temporaryDirectory(); defer { try? FileManager.default.removeItem(at: root) }
+        let (app, binary) = try app(in: root), deb = root.appendingPathComponent("Resources.deb")
+        try ArchiveFixtures.deb(data: ArchiveFixtures.tar([
+            .init(path: "Library/MobileSubstrate/DynamicLibraries/Tweak.dylib", data: BinaryFixtures.macho(fileType: 6)),
+            .init(path: "Library/Application Support/First/Assets.bundle/a", data: Data("first".utf8)),
+            .init(path: "Library/Application Support/Second/Assets.bundle/a", data: Data("second".utf8))
+        ])).write(to: deb)
+        XCTAssertThrowsError(try Injection.inject(inputs: [deb], into: app, executable: binary, workspace: root)) { error in
+            XCTAssertEqual((error as? LoadSideError)?.code, "injection.collision")
+        }
+        XCTAssertTrue(try MachO.inspect(binary).slices[0].dependencies.isEmpty)
+    }
     func testArm64eOnlyLibraryCannotLoadIntoArm64Application() throws {
         let root = try BinaryFixtures.temporaryDirectory(); defer { try? FileManager.default.removeItem(at: root) }
         let (app, binary) = try app(in: root), tweak = root.appendingPathComponent("Tweak.dylib")

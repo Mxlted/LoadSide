@@ -47,11 +47,11 @@ public enum Injection {
             switch source.pathExtension.lowercased() {
             case "dylib":
                 candidates.append(Candidate(source: source, originalPath: source.path, relativePath: source.lastPathComponent, entryPoint: true))
-                copies.append((source, source.lastPathComponent))
+                copies.append((source, "Frameworks/" + source.lastPathComponent))
             case "framework":
                 let discovered = try frameworkCandidates(source, original: source.path, entryPoint: true)
                 candidates += discovered
-                copies.append((source, source.lastPathComponent))
+                copies.append((source, "Frameworks/" + source.lastPathComponent))
             case "deb":
                 let package = stage.appendingPathComponent("package-\(index)")
                 let handle = try FileHandle(forReadingFrom: source)
@@ -79,21 +79,23 @@ public enum Injection {
                             continue
                         }
                         candidates.append(Candidate(source: dylib, originalPath: "/" + tweakPath + "/" + dylib.lastPathComponent, relativePath: dylib.lastPathComponent, entryPoint: true))
-                        copies.append((dylib, dylib.lastPathComponent))
+                        copies.append((dylib, "Frameworks/" + dylib.lastPathComponent))
                     }
                     let libraryPath = prefix + "usr/lib"
                     for dylib in try children(payload.appendingPathComponent(libraryPath)) where dylib.pathExtension.lowercased() == "dylib" {
                         candidates.append(Candidate(source: dylib, originalPath: "/" + libraryPath + "/" + dylib.lastPathComponent, relativePath: dylib.lastPathComponent, entryPoint: false))
-                        copies.append((dylib, dylib.lastPathComponent))
+                        copies.append((dylib, "Frameworks/" + dylib.lastPathComponent))
                     }
                     let frameworkPath = prefix + "Library/Frameworks"
                     for framework in try children(payload.appendingPathComponent(frameworkPath)) where framework.pathExtension.lowercased() == "framework" {
                         candidates += try frameworkCandidates(framework, original: "/" + frameworkPath + "/" + framework.lastPathComponent, entryPoint: false)
-                        copies.append((framework, framework.lastPathComponent))
+                        copies.append((framework, "Frameworks/" + framework.lastPathComponent))
                     }
-                    // Preserve ordinary adjacent resource bundles without executing any package script.
+                    // Packages commonly nest resources under Application Support/<package>/.
+                    // Standalone resource bundles belong at the app root so main-bundle
+                    // resource lookup can find them. Framework-owned resources stay in place.
                     for base in [tweaks, payload.appendingPathComponent(prefix + "Library/Application Support")] {
-                        for bundle in try children(base) where bundle.pathExtension.lowercased() == "bundle" {
+                        for bundle in try resourceBundles(under: base) {
                             try validateTree(bundle)
                             copies.append((bundle, bundle.lastPathComponent))
                         }
@@ -103,7 +105,7 @@ public enum Injection {
                 if !candidates[before...].contains(where: \.entryPoint) {
                     throw LoadSideError("injection.noEntryPoint", "\(source.lastPathComponent) has no matching MobileSubstrate entry point.", recovery: "For a library-only package, extract and explicitly supply the intended dylib or framework. LoadSide will not guess which dependency should be loaded at application launch.")
                 }
-                warnings.append("\(source.lastPathComponent): package scripts, daemons, preferences and system installation paths are not installed. Resource bundles are copied under Frameworks; hard-coded resource paths and jailbreak-only runtime behavior are not rewritten.")
+                warnings.append("\(source.lastPathComponent): package scripts, daemons, preferences and system installation paths are not installed. Standalone resource bundles are embedded at the app root; hard-coded filesystem paths and jailbreak-only runtime behavior are not rewritten.")
             default:
                 throw LoadSideError("injection.type", "Unsupported injection input: \(source.lastPathComponent)", recovery: "Choose an iOS .dylib, .framework directory, or a supported .deb package.")
             }
@@ -117,7 +119,7 @@ public enum Injection {
         var copyBytes: Int64 = 0
         for (source, name) in copies {
             try Task.checkCancellation()
-            guard names.insert(name.precomposedStringWithCanonicalMapping.lowercased()).inserted, !fm.fileExists(atPath: frameworkRoot.appendingPathComponent(name).path) else {
+            guard names.insert(name.precomposedStringWithCanonicalMapping.lowercased()).inserted, !fm.fileExists(atPath: appURL.appendingPathComponent(name).path) else {
                 throw LoadSideError("injection.collision", "Injected content would overwrite or conflict with \(name).", recovery: "Remove the duplicate input or use libraries with unique names.")
             }
             let usage = try validateTree(source)
@@ -160,7 +162,10 @@ public enum Injection {
             plans.append((candidate, replacements))
         }
         // All source and dependency validation is complete before the application's code is edited.
-        for (source, name) in copies { try fm.copyItem(at: source, to: frameworkRoot.appendingPathComponent(name)) }
+        for (source, name) in copies {
+            try fm.copyItem(at: source, to: appURL.appendingPathComponent(name))
+            if source.pathExtension.lowercased() == "bundle" { warnings.append("Embedded resource bundle \(source.lastPathComponent) at the application root.") }
+        }
         var injected: [URL] = []
         for (candidate, replacements) in plans {
             try Task.checkCancellation()
@@ -187,6 +192,31 @@ public enum Injection {
     private static func children(_ directory: URL) throws -> [URL] {
         guard FileManager.default.fileExists(atPath: directory.path) else { return [] }
         return try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil).sorted { $0.path < $1.path }
+    }
+    private static func resourceBundles(under directory: URL) throws -> [URL] {
+        guard FileManager.default.fileExists(atPath: directory.path) else { return [] }
+        let root = try directory.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+        guard root.isDirectory == true, root.isSymbolicLink != true else { throw LoadSideError("injection.resources", "Resource search root must be a real directory.") }
+        var failure: Error?
+        guard let enumerator = FileManager.default.enumerator(at: directory, includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey], errorHandler: { _, error in failure = error; return false }) else {
+            throw LoadSideError("injection.resources", "Cannot inspect package resource bundles.")
+        }
+        var bundles: [URL] = [], count = 0
+        for case let url as URL in enumerator {
+            try Task.checkCancellation()
+            count += 1
+            guard count <= 100_000 else { throw LoadSideError("injection.limit", "Resource discovery exceeds the package entry limit.") }
+            let values = try url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+            if url.pathExtension.lowercased() == "bundle" {
+                guard values.isDirectory == true, values.isSymbolicLink != true else { throw LoadSideError("injection.resources", "Resource bundle must be a real directory: \(url.lastPathComponent)") }
+                bundles.append(url)
+                enumerator.skipDescendants()
+            } else if values.isSymbolicLink == true || ["framework", "app", "appex"].contains(url.pathExtension.lowercased()) {
+                enumerator.skipDescendants()
+            }
+        }
+        if let failure { throw failure }
+        return bundles.sorted { $0.path < $1.path }
     }
     private static func frameworkCandidates(_ framework: URL, original: String, entryPoint: Bool) throws -> [Candidate] {
         try validateTree(framework)
