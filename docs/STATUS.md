@@ -2,6 +2,8 @@
 
 Target: **0.1.0-rc.2**, local evaluation release candidate. This file records evidence, not aspirational completion.
 
+The [RC.2 artifact qualification record](QUALIFICATION-0.1.0-rc.2.md) identifies the final app, source commit, checksums and remaining release gates.
+
 | Area | State | Evidence / remaining work |
 | --- | --- | --- |
 | Architecture | Implemented | Native macOS 14+ SwiftUI, shared Swift 6 engine and CLI, system libarchive |
