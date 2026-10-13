@@ -37,6 +37,8 @@ public actor LocalAppServer {
     private var continuation: CheckedContinuation<LocalAppServerSession, any Error>?
     private var session: LocalAppServerSession?
     private var clients: [UUID: LocalHTTPClient] = [:]
+    private var shutdown: Task<Void, Never>?
+    private var listenerCancellation: (id: UUID, continuation: CheckedContinuation<Void, Never>)?
 
     public init(library: LocalAppLibrary, onFailure: @escaping @Sendable (String) -> Void = { _ in }) {
         self.library = library
@@ -49,6 +51,7 @@ public actor LocalAppServer {
     }
 
     public func start(port: UInt16 = 0, httpsBaseURL: URL? = nil) async throws -> LocalAppServerSession {
+        if let shutdown { await shutdown.value }
         guard listener == nil else { throw LoadSideError("server.running", "Stop sharing before changing its configuration.") }
         let base = try LocalHTTP.validateHTTPSBase(httpsBaseURL)
         _ = try await library.library()
@@ -85,7 +88,13 @@ public actor LocalAppServer {
         }
     }
 
-    public func stop() async { await stop(ifGeneration: generation) }
+    public func stop() async {
+        if let shutdown {
+            await shutdown.value
+        } else {
+            await stop(ifGeneration: generation)
+        }
+    }
     public func currentSession() -> LocalAppServerSession? { session }
 
     /// Attach a ready tunnel without restarting the listener or changing its capability token.
@@ -102,17 +111,30 @@ public actor LocalAppServer {
         return updated
     }
 
-    private func stop(ifGeneration id: UUID?) async {
-        guard generation == id else { return }
+    private func stop(ifGeneration id: UUID?, alreadyCancelled: Bool = false) async {
+        guard let id, generation == id else { return }
         generation = nil
-        listener?.cancel()
-        listener = nil
         session = nil
         continuation?.resume(throwing: CancellationError())
         continuation = nil
         let active = Array(clients.values)
         clients.removeAll()
-        for client in active { await client.cancel() }
+        let stoppingListener = listener
+        let task = Task {
+            for client in active { await client.cancel() }
+            if let stoppingListener, !alreadyCancelled {
+                // Network.framework releases the listener asynchronously. Keep it
+                // owned until the final callback before allowing this port to restart.
+                await withCheckedContinuation { continuation in
+                    listenerCancellation = (id, continuation)
+                    stoppingListener.cancel()
+                }
+            }
+            listener = nil
+            shutdown = nil
+        }
+        shutdown = task
+        await task.value
     }
     private func startupTimedOut(_ id: UUID) async {
         guard generation == id, continuation != nil else { return }
@@ -122,6 +144,12 @@ public actor LocalAppServer {
         await stop(ifGeneration: id)
     }
     private func listenerChanged(_ state: NWListener.State, id: UUID, token: String, httpsBase: URL?) async {
+        if case .cancelled = state, listenerCancellation?.id == id {
+            let waiter = listenerCancellation?.continuation
+            listenerCancellation = nil
+            waiter?.resume()
+            return
+        }
         guard generation == id else { return }
         switch state {
         case .ready:
@@ -143,7 +171,7 @@ public actor LocalAppServer {
         case .cancelled:
             if listener != nil {
                 onFailure("Local sharing stopped because the network listener was cancelled.")
-                await stop(ifGeneration: id)
+                await stop(ifGeneration: id, alreadyCancelled: true)
             }
         default: break
         }

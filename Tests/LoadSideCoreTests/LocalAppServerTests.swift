@@ -5,6 +5,35 @@ import XCTest
 @testable import LoadSideCore
 
 final class LocalAppServerTests: XCTestCase {
+    func testRepeatedSamePortRestartsWaitForListenerCancellationAndRotateLinks() async throws {
+        let root = try BinaryFixtures.temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let server = LocalAppServer(library: LocalAppLibrary(directory: root.appendingPathComponent("apps")))
+        var previous: LocalAppServerSession?
+        do {
+            for _ in 0..<20 {
+                let current = try await server.start(port: previous?.port ?? 0)
+                let (_, response) = try await fetch(current.localURL)
+                XCTAssertEqual(response.statusCode, 200)
+                if let previous {
+                    XCTAssertEqual(current.port, previous.port)
+                    XCTAssertNotEqual(current.localURL, previous.localURL)
+                    let (_, denied) = try await fetch(previous.localURL)
+                    XCTAssertEqual(denied.statusCode, 404)
+                }
+                async let firstStop: Void = server.stop()
+                async let secondStop: Void = server.stop()
+                _ = await (firstStop, secondStop)
+                let stopped = await server.currentSession()
+                XCTAssertNil(stopped)
+                previous = current
+            }
+        } catch {
+            await server.stop()
+            throw error
+        }
+    }
+
     func testArchiveTruncatedAfterHeadersClosesTransferWithoutAppendingAnErrorResponse() async throws {
         let root = try BinaryFixtures.temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
