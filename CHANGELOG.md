@@ -6,7 +6,8 @@
 
 - Make workspace option headers clickable across the row. Make the IPA card open the file chooser, rename its empty state to “Add an IPA,” and clarify that the IPA must be decrypted.
 
-- Increase native text, controls, click targets, spacing, and window dimensions proportionally by about 10%.
+- Add automatic HTTPS setup for browser installation using SignTools’ Cloudflare tunnel approach. Download and verify a pinned official helper once, generate a temporary HTTPS link and QR code, preserve custom HTTPS/local-only choices, and close sharing on cancellation, stop, quit, or helper failure.
+- Increase native text, controls, click targets, spacing, and window dimensions proportionally by about 10%; enlarge mobile catalog actions to at least 44 pixels high.
 
 - Add a private signed-app library and an opt-in local web server with a mobile catalog, IPA downloads, and HTTPS OTA manifests/install links. Limit sharing to verified export copies and rotate access links each session.
 - Add credential-free **Inject only** mode in the app and `loadside inject` CLI. Export validated but unsigned IPAs with stale signatures/profiles removed; preserve inputs and require later signing for ordinary iOS installation.

@@ -100,6 +100,106 @@ final class LocalAppServerTests: XCTestCase {
         } catch { await server.stop(); throw error }
     }
 
+    func testRunningServerAttachesHTTPSWithoutRotatingLinksAndServesInstallManifest() async throws {
+        let root = try BinaryFixtures.temporaryDirectory(); defer { try? FileManager.default.removeItem(at: root) }
+        let library = LocalAppLibrary(directory: root.appendingPathComponent("apps"))
+        let app = try await library.add(try libraryResult(root, version: "207.3"))
+        let server = LocalAppServer(library: library)
+        let initial = try await server.start()
+        do {
+            let manifestPath = "apps/\(app.id.uuidString).plist"
+            let (initialPage, initialResponse) = try await fetch(initial.localURL)
+            XCTAssertEqual(initialResponse.statusCode, 200)
+            XCTAssertFalse(initial.installEnabled)
+            XCTAssertFalse(String(decoding: initialPage, as: UTF8.self).contains("itms-services"))
+            let (_, unavailableManifest) = try await fetch(initial.localURL.appendingPathComponent(manifestPath))
+            XCTAssertEqual(unavailableManifest.statusCode, 404)
+
+            let origin = URL(string: "https://apps.example.com:8443")!
+            let updated = try await server.configureHTTPS(baseURL: origin, expectedLocalURL: initial.localURL)
+            let expectedHTTPS = origin.appendingPathComponent(initial.localURL.lastPathComponent, isDirectory: true)
+            XCTAssertEqual(updated.localURL, initial.localURL)
+            XCTAssertEqual(updated.networkURLs, initial.networkURLs)
+            XCTAssertEqual(updated.port, initial.port)
+            XCTAssertEqual(updated.httpsURL, expectedHTTPS)
+            XCTAssertTrue(updated.installEnabled)
+            let current = await server.currentSession()
+            XCTAssertEqual(current?.httpsURL, expectedHTTPS)
+
+            let (pageData, pageResponse) = try await fetch(initial.localURL)
+            XCTAssertEqual(pageResponse.statusCode, 200)
+            let page = String(decoding: pageData, as: UTF8.self)
+            let installLink = try XCTUnwrap(page.components(separatedBy: "href=\"")
+                .dropFirst().map { String($0.prefix(while: { $0 != "\"" })) }
+                .first { $0.hasPrefix("itms-services:") })
+                .replacingOccurrences(of: "&amp;", with: "&")
+            let install = try XCTUnwrap(URLComponents(string: installLink))
+            XCTAssertEqual(install.scheme, "itms-services")
+            XCTAssertEqual(install.queryItems?.first { $0.name == "action" }?.value, "download-manifest")
+            XCTAssertEqual(install.queryItems?.first { $0.name == "url" }?.value,
+                           expectedHTTPS.appendingPathComponent(manifestPath).absoluteString)
+
+            let (manifestData, manifestResponse) = try await fetch(initial.localURL.appendingPathComponent(manifestPath))
+            XCTAssertEqual(manifestResponse.statusCode, 200)
+            let plist = try XCTUnwrap(PropertyListSerialization.propertyList(from: manifestData, format: nil) as? [String: Any])
+            let items = try XCTUnwrap(plist["items"] as? [[String: Any]])
+            let metadata = try XCTUnwrap(items.first?["metadata"] as? [String: String])
+            XCTAssertEqual(metadata["bundle-version"], "207.3")
+            XCTAssertEqual(metadata["bundle-identifier"], app.bundleIdentifier)
+            let assets = try XCTUnwrap(items.first?["assets"] as? [[String: String]])
+            XCTAssertEqual(assets.first?["kind"], "software-package")
+            XCTAssertEqual(assets.first?["url"], expectedHTTPS.appendingPathComponent("apps/\(app.id.uuidString).ipa").absoluteString)
+            await server.stop()
+        } catch { await server.stop(); throw error }
+    }
+
+    func testHTTPSAttachmentRejectsUnsafeOriginsAndStaleSessionsWithoutChangingState() async throws {
+        let root = try BinaryFixtures.temporaryDirectory(); defer { try? FileManager.default.removeItem(at: root) }
+        let server = LocalAppServer(library: LocalAppLibrary(directory: root.appendingPathComponent("apps")))
+        let original = try await server.start()
+        let origin = URL(string: "https://apps.example.com")!
+        do {
+            let configured = try await server.configureHTTPS(baseURL: origin, expectedLocalURL: original.localURL)
+            for value in ["http://apps.example.com", "https://user:password@apps.example.com", "https://apps.example.com/path", "https://apps.example.com?query", "https://apps.example.com#fragment", "https://apps.example.com:0"] {
+                do {
+                    _ = try await server.configureHTTPS(baseURL: URL(string: value)!, expectedLocalURL: original.localURL)
+                    XCTFail("Accepted an unsafe HTTPS origin: \(value)")
+                } catch let error as LoadSideError {
+                    XCTAssertEqual(error.code, "server.https")
+                }
+                let current = await server.currentSession()
+                XCTAssertEqual(current?.localURL, configured.localURL)
+                XCTAssertEqual(current?.httpsURL, configured.httpsURL)
+            }
+
+            await server.stop()
+            do {
+                _ = try await server.configureHTTPS(baseURL: origin, expectedLocalURL: original.localURL)
+                XCTFail("Attached HTTPS after the listener stopped")
+            } catch let error as LoadSideError {
+                XCTAssertEqual(error.code, "server.session")
+            }
+            let stopped = await server.currentSession()
+            XCTAssertNil(stopped)
+
+            let restarted = try await server.start()
+            XCTAssertNotEqual(restarted.localURL, original.localURL)
+            do {
+                _ = try await server.configureHTTPS(baseURL: origin, expectedLocalURL: original.localURL)
+                XCTFail("Attached a stale HTTPS result to a new sharing session")
+            } catch let error as LoadSideError {
+                XCTAssertEqual(error.code, "server.session")
+            }
+            let current = await server.currentSession()
+            XCTAssertEqual(current?.localURL, restarted.localURL)
+            XCTAssertNil(current?.httpsURL)
+            let (page, response) = try await fetch(restarted.localURL)
+            XCTAssertEqual(response.statusCode, 200)
+            XCTAssertFalse(String(decoding: page, as: UTF8.self).contains("itms-services"))
+            await server.stop()
+        } catch { await server.stop(); throw error }
+    }
+
     private func fetch(_ url: URL, method: String = "GET", headers: [String: String] = [:]) async throws -> (Data, HTTPURLResponse) {
         var request = URLRequest(url: url); request.httpMethod = method; request.timeoutInterval = 15
         for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }

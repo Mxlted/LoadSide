@@ -4,25 +4,36 @@ import Foundation
 import LoadSideCore
 import SwiftUI
 
+enum LibrarySharingMode: String, CaseIterable, Identifiable {
+    case automaticHTTPS = "Automatic HTTPS"
+    case localDownloads = "Local downloads only"
+    case customHTTPS = "My HTTPS server"
+    var id: Self { self }
+}
+
 @MainActor
 final class LocalLibraryModel: ObservableObject {
     @Published private(set) var apps: [LocalAppRecord] = []
     @Published private(set) var session: LocalAppServerSession?
     @Published private(set) var isUpdating = false
     @Published private(set) var isChangingServer = false
+    @Published private(set) var serverStatus = ""
     @Published var notice: String?
+    @Published var sharingMode: LibrarySharingMode = .automaticHTTPS
     @Published var port = "8787"
     @Published var httpsBaseURL = ""
     private var updateCount = 0 {
         didSet { isUpdating = updateCount > 0 }
     }
     private let store = LocalAppLibrary()
-    private lazy var server = LocalAppServer(library: store, onFailure: { [weak self] message in
-        Task { @MainActor [weak self] in
-            self?.session = nil
-            self?.notice = "Sharing stopped: \(message)"
-        }
-    })
+    private let installer = CloudflaredInstaller()
+    private var server: LocalAppServer?
+    private var tunnel: LocalAppTunnel?
+    private var startupTask: Task<Void, Never>?
+    private var generation: UUID?
+    private var isStopping = false
+    private var stopWaiters: [CheckedContinuation<Void, Never>] = []
+    var needsShutdown: Bool { session != nil || isChangingServer }
 
     init() { Task { await refresh() } }
 
@@ -65,29 +76,86 @@ final class LocalLibraryModel: ObservableObject {
         catch { notice = "The library copy could not be removed: \(error.localizedDescription)" }
     }
 
-    func start() async {
+    func start() {
         guard !isChangingServer, session == nil else { return }
         guard let selectedPort = UInt16(port), selectedPort > 0 else {
             notice = "Choose a port between 1 and 65535."
             return
         }
-        let address = httpsBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        let address = sharingMode == .customHTTPS ? httpsBaseURL.trimmingCharacters(in: .whitespacesAndNewlines) : ""
         let baseURL = address.isEmpty ? nil : URL(string: address)
-        guard address.isEmpty || baseURL != nil else { notice = "Enter a valid HTTPS address."; return }
+        guard sharingMode != .customHTTPS || (baseURL?.scheme == "https" && baseURL?.host?.isEmpty == false) else {
+            notice = "Enter the HTTPS address of your server."; return
+        }
+        let id = UUID(), mode = sharingMode
+        generation = id
         isChangingServer = true
-        defer { isChangingServer = false }
-        do {
-            notice = nil
-            session = try await server.start(port: selectedPort, httpsBaseURL: baseURL)
-        } catch { notice = "The local server could not start: \(error.localizedDescription)" }
+        notice = nil
+        let onFailure: @Sendable (String) -> Void = { [weak self] message in
+            Task { @MainActor [weak self] in
+                guard let self, self.generation == id else { return }
+                self.notice = "Sharing stopped: \(message)"
+                await self.stop()
+            }
+        }
+        let server = LocalAppServer(library: store, onFailure: onFailure)
+        let tunnel = LocalAppTunnel(onFailure: onFailure)
+        self.server = server; self.tunnel = tunnel
+        startupTask = Task {
+            do {
+                let executable: URL?
+                if mode == .automaticHTTPS {
+                    serverStatus = "Preparing HTTPS helper…"
+                    executable = try await installer.executable()
+                } else { executable = nil }
+                try Task.checkCancellation()
+                serverStatus = "Starting local server…"
+                var ready = try await server.start(port: selectedPort, httpsBaseURL: baseURL)
+                if let executable {
+                    serverStatus = "Connecting HTTPS…"
+                    let origin = try await tunnel.start(executable: executable, port: ready.port)
+                    try Task.checkCancellation()
+                    ready = try await server.configureHTTPS(baseURL: origin, expectedLocalURL: ready.localURL)
+                }
+                try Task.checkCancellation()
+                if generation == id { session = ready }
+            } catch {
+                await tunnel.stop()
+                await server.stop()
+                if generation == id, !(error is CancellationError) {
+                    notice = "Sharing could not start: \(error.localizedDescription)"
+                }
+            }
+            if generation == id {
+                startupTask = nil
+                isChangingServer = false
+                serverStatus = ""
+            }
+        }
     }
 
     func stop() async {
-        guard !isChangingServer else { return }
+        if isStopping {
+            await withCheckedContinuation { stopWaiters.append($0) }
+            return
+        }
+        isStopping = true
+        generation = nil
         isChangingServer = true
-        await server.stop()
+        serverStatus = "Stopping sharing…"
+        let startup = startupTask
+        startup?.cancel()
+        await startup?.value
+        await tunnel?.stop()
+        await server?.stop()
+        startupTask = nil; tunnel = nil; server = nil
         session = nil
+        serverStatus = ""
         isChangingServer = false
+        isStopping = false
+        let waiters = stopWaiters
+        stopWaiters.removeAll()
+        for waiter in waiters { waiter.resume() }
     }
 
     func revealLibrary() { NSWorkspace.shared.open(store.directoryURL) }
@@ -101,7 +169,6 @@ final class LocalLibraryModel: ObservableObject {
 struct LocalLibraryView: View {
     @ObservedObject var model: WorkspaceModel
     @ObservedObject private var library: LocalLibraryModel
-    @State private var showHTTPS = false
     @State private var showAddresses = false
 
     init(model: WorkspaceModel) {
@@ -110,31 +177,31 @@ struct LocalLibraryView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: 20) {
             HStack(alignment: .top) {
                 PageHeading(title: "Local Library", detail: "Your signed apps, ready to share from this Mac.")
                 Spacer()
                 Button { library.revealLibrary() } label: { Label("Show Folder", systemImage: "folder") }
             }
-            HStack(alignment: .top, spacing: 18) {
+            HStack(alignment: .top, spacing: 20) {
                 catalog.frame(maxWidth: .infinity, maxHeight: .infinity)
                 ScrollView {
-                    VStack(spacing: 14) {
+                    VStack(spacing: 16) {
                         serverPanel
                         if let notice = library.notice {
                             InlineNotice(message: notice)
                             Button("Dismiss") { library.notice = nil }.buttonStyle(.borderless)
                         }
                     }
-                }.frame(width: 310)
+                }.frame(width: 350)
             }
         }
-        .padding(22)
+        .padding(AppMetrics.pagePadding)
         .task { await library.refresh() }
     }
 
     private var catalog: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 14) {
             HStack {
                 Text("\(library.apps.count) signed \(library.apps.count == 1 ? "app" : "apps")").font(.headline)
                 Spacer()
@@ -143,63 +210,67 @@ struct LocalLibraryView: View {
                         Task { await library.addPreviousExports(model.history.filter { $0.status == .completed }.compactMap(\.result)) }
                     }.disabled(library.isUpdating || model.history.allSatisfy { $0.result == nil })
                     Button("Refresh Library") { Task { await library.refresh() } }
-                } label: { Image(systemName: "ellipsis.circle") }.menuStyle(.borderlessButton).fixedSize()
+                } label: {
+                    Image(systemName: "ellipsis.circle").frame(width: AppMetrics.iconButtonSize, height: AppMetrics.iconButtonSize)
+                }.menuStyle(.borderlessButton).fixedSize().accessibilityLabel("Library actions")
             }
             if library.apps.isEmpty {
                 EmptyState(symbol: "square.stack.3d.up", title: "Your next export appears here",
                            description: "Successfully signed exports are added automatically. You can also add completed exports from Activity using the menu above.")
             } else {
                 ScrollView {
-                    LazyVStack(spacing: 10) {
+                    LazyVStack(spacing: 12) {
                         ForEach(library.apps) { app in
-                            Panel(padding: 14) {
-                                HStack(alignment: .top, spacing: 12) {
-                                    SymbolTile(symbol: "app.badge.checkmark", size: 38)
+                            Panel(padding: 15) {
+                                HStack(alignment: .top, spacing: 14) {
+                                    SymbolTile(symbol: "app.badge.checkmark", size: 42)
                                     VStack(alignment: .leading, spacing: 5) {
-                                        Text(app.displayName).font(.system(size: 14, weight: .semibold)).lineLimit(1)
-                                        Text(app.bundleIdentifier).font(.system(size: 11, design: .monospaced)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                                        Text(app.displayName).font(.system(size: 15, weight: .semibold)).lineLimit(1)
+                                        Text(app.bundleIdentifier).font(.system(size: 12, design: .monospaced)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
                                         Text("\(ByteCountFormatter.string(fromByteCount: Int64(app.byteCount), countStyle: .file)) · \(app.createdAt.formatted(date: .abbreviated, time: .shortened))")
-                                            .font(.system(size: 11)).foregroundStyle(.secondary)
+                                            .font(.system(size: 12)).foregroundStyle(.secondary)
                                         if app.bundleVersion == nil {
-                                            Text("Download only · export again for install metadata").font(.caption).foregroundStyle(Palette.warning)
+                                            Text("Download only · export again for install metadata").font(.system(size: 12)).foregroundStyle(Palette.warning)
                                         }
                                     }
                                     Spacer(minLength: 0)
                                     Menu {
                                         Button("Remove Library Copy", role: .destructive) { Task { await library.remove(app) } }
                                             .disabled(library.isUpdating)
-                                    } label: { Image(systemName: "ellipsis") }.menuStyle(.borderlessButton).fixedSize()
+                                    } label: {
+                                        Image(systemName: "ellipsis").frame(width: AppMetrics.iconButtonSize, height: AppMetrics.iconButtonSize)
+                                    }.menuStyle(.borderlessButton).fixedSize().accessibilityLabel("Actions for \(app.displayName)")
                                 }
                             }
                         }
                     }.padding(.bottom, 4)
                 }
             }
-            if library.isUpdating { ProgressView("Updating library…").controlSize(.small) }
+            if library.isUpdating { ProgressView("Updating library…").controlSize(.regular) }
             Text("Library copies are stored privately. Removing one keeps your original export.")
-                .font(.caption).foregroundStyle(.secondary)
+                .font(.system(size: 12)).foregroundStyle(.secondary)
         }
     }
 
     private var serverPanel: some View {
-        Panel(padding: 16) {
-            VStack(alignment: .leading, spacing: 14) {
+        Panel(padding: 18) {
+            VStack(alignment: .leading, spacing: 16) {
                 HStack {
-                    SymbolTile(symbol: "network", color: library.session == nil ? .secondary : Palette.success, size: 32)
+                    SymbolTile(symbol: "network", color: library.session == nil ? .secondary : Palette.success, size: 36)
                     VStack(alignment: .leading, spacing: 3) {
                         Text("Local server").font(.headline)
-                        Text(library.session == nil ? "Sharing is off" : "Sharing is on")
-                            .font(.caption).foregroundStyle(library.session == nil ? Color.secondary : Palette.success)
+                        Text(library.isChangingServer ? library.serverStatus : library.session == nil ? "Sharing is off" : "Sharing is on")
+                            .font(.system(size: 12)).foregroundStyle(library.session == nil ? Color.secondary : Palette.success)
                     }
                     Spacer()
                 }
                 if let session = library.session {
-                    Text("Open this address on your iPhone or iPad on the same network. Keep LoadSide open.")
-                        .font(.system(size: 12)).foregroundStyle(.secondary)
+                    Text(session.installEnabled ? "Open this address in Safari on your iPhone or iPad, then tap Install on device. Keep LoadSide open." : "Open this address on a device on the same network to download apps. Keep LoadSide open.")
+                        .font(.system(size: 13)).foregroundStyle(.secondary)
                     Text(session.browserURL.absoluteString)
-                        .font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
-                        .padding(10).frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Palette.field, in: RoundedRectangle(cornerRadius: 8))
+                        .font(.system(size: 12, design: .monospaced)).textSelection(.enabled)
+                        .padding(12).frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Palette.field, in: RoundedRectangle(cornerRadius: 9))
                     HStack {
                         Button("Copy Link", action: library.copyAddress)
                         Button("Open") { NSWorkspace.shared.open(session.browserURL) }
@@ -209,38 +280,55 @@ struct LocalLibraryView: View {
                         VStack(alignment: .leading, spacing: 8) {
                             Text("On this Mac: \(session.localURL.absoluteString)")
                             ForEach(session.networkURLs, id: \.self) { url in Text(url.absoluteString) }
-                        }.font(.system(size: 10, design: .monospaced)).textSelection(.enabled).padding(.top, 6)
-                    }.font(.caption)
-                    Text(session.installEnabled ? "Install links use your HTTPS address. The device must trust its certificate and be eligible for the signed app." : "Browsing and downloads are available. To enable Install buttons, stop sharing and configure HTTPS below.")
-                        .font(.system(size: 12)).foregroundStyle(.secondary)
+                        }.font(.system(size: 11, design: .monospaced)).textSelection(.enabled).padding(.top, 8)
+                    }.font(.system(size: 12))
+                    Text(session.installEnabled ? "The device must be eligible for the signed app. An install link does not verify installation or launch." : "For Install buttons, stop sharing and select Automatic HTTPS.")
+                        .font(.system(size: 13)).foregroundStyle(.secondary)
                     Button("Stop Sharing", role: .destructive) { Task { await library.stop() } }
                         .disabled(library.isChangingServer)
                 } else {
-                    Text("Share your signed app catalog with devices on your local network.")
-                        .font(.system(size: 12)).foregroundStyle(.secondary)
-                    HStack {
-                        Text("Port").font(.system(size: 12))
-                        TextField("8787", text: $library.port).textFieldStyle(.roundedBorder).frame(width: 82)
-                        Spacer()
+                    sharingSetup
+                    if library.isChangingServer {
+                        ProgressView(library.serverStatus).controlSize(.regular).font(.system(size: 13))
+                        Button("Cancel Setup") { Task { await library.stop() } }
+                    } else {
+                        Button(action: library.start) {
+                            Label("Start Sharing", systemImage: "antenna.radiowaves.left.and.right")
+                                .frame(maxWidth: .infinity)
+                        }.buttonStyle(.borderedProminent).disabled(library.apps.isEmpty || library.isUpdating)
                     }
-                    DisclosureGroup("Enable browser installation", isExpanded: $showHTTPS) {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("HTTPS address").font(.caption.weight(.medium))
-                            TextField("https://apps.example.com", text: $library.httpsBaseURL).textFieldStyle(.roundedBorder)
-                            Text("Point a reverse proxy at this Mac’s local port. Its HTTPS certificate must be trusted by your iOS device. LoadSide generates the install manifests; it does not configure the proxy or upload apps.")
-                                .font(.system(size: 11)).foregroundStyle(.secondary)
-                        }.padding(.top, 8)
-                    }.font(.system(size: 12))
-                    Button { Task { await library.start() } } label: {
-                        Label(library.isChangingServer ? "Starting…" : "Start Sharing", systemImage: "antenna.radiowaves.left.and.right")
-                            .frame(maxWidth: .infinity)
-                    }.buttonStyle(.borderedProminent).disabled(library.isChangingServer || library.apps.isEmpty || library.isUpdating)
                 }
                 Divider()
-                Text("Anyone with the link can download the library. Use a trusted network; local HTTP traffic is unencrypted. Stopping sharing invalidates its links.")
-                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                Text("Anyone with the link can download the library. Stop Sharing or quit LoadSide to invalidate its links. Local HTTP addresses are unencrypted.")
+                    .font(.system(size: 12)).foregroundStyle(.secondary)
             }
         }
+    }
+
+    private var sharingSetup: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Picker("Connection", selection: $library.sharingMode) {
+                ForEach(LibrarySharingMode.allCases) { mode in Text(mode.rawValue).tag(mode) }
+            }.pickerStyle(.menu)
+            switch library.sharingMode {
+            case .automaticHTTPS:
+                Text("Install from your browser without configuring a server. On first use, LoadSide downloads and verifies Cloudflare’s HTTPS helper (about 20 MB). No account or domain is needed.")
+                Text("Starting sharing makes this library reachable through Cloudflare. App downloads pass through their network; signing files stay on your Mac. Internet access is required. The temporary address changes each session.")
+                    .foregroundStyle(.secondary)
+            case .localDownloads:
+                Text("Browse and download on the same network. No external service is used. Direct installation requires an HTTPS connection.")
+                    .foregroundStyle(.secondary)
+            case .customHTTPS:
+                TextField("https://apps.example.com", text: $library.httpsBaseURL).textFieldStyle(.roundedBorder)
+                Text("Point your reverse proxy at this Mac’s port and forward the full path. Its HTTPS certificate must be trusted by your device.")
+                    .foregroundStyle(.secondary)
+            }
+            HStack {
+                Text("Local port")
+                TextField("8787", text: $library.port).textFieldStyle(.roundedBorder).frame(width: 90)
+                Spacer()
+            }
+        }.font(.system(size: 13)).disabled(library.isChangingServer)
     }
 }
 
@@ -256,12 +344,12 @@ private struct ShareQRCode: View {
     }
     var body: some View {
         if let image {
-            HStack(spacing: 12) {
+            HStack(spacing: 14) {
                 Image(decorative: image, scale: 1).interpolation(.none).resizable()
-                    .frame(width: 120, height: 120).padding(8).background(.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .frame(width: 132, height: 132).padding(9).background(.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 9))
                 Text("Scan with your device’s camera to open the library.")
-                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                    .font(.system(size: 12)).foregroundStyle(.secondary)
             }.accessibilityLabel("QR code for the sharing address shown above")
         }
     }

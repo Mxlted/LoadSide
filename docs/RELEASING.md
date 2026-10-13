@@ -13,6 +13,7 @@ The version lives in `VERSION`. Keep the CLI version, UI version, `CHANGELOG.md`
 Record the exact commit, macOS version, Xcode version, device model/OS, distribution type, and sanitized result for each applicable case:
 
 - [ ] Decrypted app without extensions: import P12, sign, export, install, and launch.
+- [ ] Local Library: fresh Automatic HTTPS helper download, Safari installation through both the HTTPS link and local HTTP catalog, large IPA transfer, cancellation/quit cleanup, interrupted network, and restart link rotation. Verify My HTTPS server and Local downloads only independently. Repeat on minimum macOS and both helper architectures.
 - [ ] App with extension: separate valid profiles, install, launch the app, and exercise the extension.
 - [ ] Require matching extension profiles with only a main-app profile: fail with an actionable missing-profile diagnostic and no final export.
 - [ ] Default experimental main-profile reuse: preserve child extension IDs, record the exact signing-identity mismatch, install, launch and exercise retained extensions. Verify matching profiles still take priority and nested companion apps cannot use the fallback.
@@ -48,6 +49,8 @@ For CI or an explicit local distribution archive, run `scripts/package.sh --loca
 Both `check.sh` and `package.sh` use the selected Xcode macOS SDK for compilation and explicitly pass its root to clang's link driver. This works around [Swift's SDK forwarding issue](https://github.com/swiftlang/swift-package-manager/issues/8886), which can stamp the deployment target as the linked SDK and suppress the current native control appearance. Each binary slice must report macOS 14 as its minimum and the actual selected SDK as its build SDK. Stale binaries are rejected even with `--skip-build`; rebuild normally after changing Xcode. This does not raise the app's minimum macOS version.
 
 The build is not notarized and should not be presented as a production download. Gatekeeper may require explicit local approval if the artifact has quarantine metadata.
+
+Automatic HTTPS downloads its optional cloudflared helper on demand. When changing the pinned release in `CloudflaredInstaller`, verify official archive checksums and independently hash the extracted ARM64 and Intel executables; update sizes, third-party notices, and both architecture pins together. Test a fresh install and cached reuse, tunnel readiness, stop/cancel/quit, and real HTTPS catalog/manifest/IPA transfer. A helper or tunnel smoke test does not replace the Safari/device qualification gate.
 
 ### Generated output cleanup
 

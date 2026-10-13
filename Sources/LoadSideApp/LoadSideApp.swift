@@ -49,7 +49,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
     }
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard model?.isRunning == true else { return .terminateNow }
+        guard model?.isRunning == true else {
+            guard let library = model?.localLibrary, library.needsShutdown else { return .terminateNow }
+            Task {
+                await library.stop()
+                NSApp.reply(toApplicationShouldTerminate: true)
+            }
+            return .terminateLater
+        }
         let alert = NSAlert()
         alert.messageText = "An export is still running"
         alert.informativeText = "Keep LoadSide open while it finishes, or cancel the operation before quitting."

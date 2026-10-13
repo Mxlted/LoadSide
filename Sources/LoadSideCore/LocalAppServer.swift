@@ -24,7 +24,7 @@ public struct LocalAppServerSession: Sendable {
 
 /// An opt-in, read-only HTTP server. A fresh 256-bit capability URL limits access to explicitly
 /// published library copies. HTTP is unencrypted; only share the URL on a trusted local network.
-/// OTA is offered only with a user-managed HTTPS reverse proxy, with trust checked by the device.
+/// OTA uses a configured HTTPS reverse proxy or an explicitly started managed tunnel.
 public actor LocalAppServer {
     private let library: LocalAppLibrary
     private let onFailure: @Sendable (String) -> Void
@@ -79,6 +79,19 @@ public actor LocalAppServer {
 
     public func stop() async { await stop(ifGeneration: generation) }
     public func currentSession() -> LocalAppServerSession? { session }
+
+    /// Attach a ready tunnel without restarting the listener or changing its capability token.
+    /// The expected local URL prevents delayed setup from changing a newer sharing session.
+    public func configureHTTPS(baseURL: URL, expectedLocalURL: URL) throws -> LocalAppServerSession {
+        let base = try LocalHTTP.validateHTTPSBase(baseURL)!
+        guard let current = session, current.localURL == expectedLocalURL else {
+            throw LoadSideError("server.session", "The sharing session ended before HTTPS became ready. Start sharing again.")
+        }
+        let updated = LocalAppServerSession(localURL: current.localURL, networkURLs: current.networkURLs,
+            httpsURL: base.appendingPathComponent(current.localURL.lastPathComponent, isDirectory: true), port: current.port)
+        session = updated
+        return updated
+    }
 
     private func stop(ifGeneration id: UUID?) async {
         guard generation == id else { return }
@@ -359,8 +372,8 @@ enum LocalHTTP {
         }.joined(separator: "\n")
         return """
         <!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>LoadSide App Library</title><style>
-        :root{color-scheme:light dark;font:16px -apple-system,BlinkMacSystemFont,sans-serif}body{margin:0;background:#10131a;color:#e7edf7}main{max-width:1000px;margin:auto;padding:44px 24px}header{margin-bottom:30px}h1{font-size:36px;letter-spacing:-1px;margin:8px 0}h2{font-size:19px;margin:0 0 8px}p{color:#9eaabd;line-height:1.55;margin:4px 0;overflow-wrap:anywhere}.eyebrow{color:#a6b7ff;font-weight:600;font-size:13px;letter-spacing:1.5px}.notice{padding:16px 20px;background:#202737;border-radius:14px;margin:24px 0;line-height:1.6;color:#c2cbda}.grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr))}article{display:flex;gap:16px;border:1px solid #30394b;background:#191f2b;border-radius:18px;padding:22px}.icon{flex-shrink:0;width:48px;height:48px;border-radius:13px;background:#303e73;color:#cad5ff;display:grid;place-items:center;font-size:24px;font-weight:700}.details{min-width:0}.actions{display:flex;flex-wrap:wrap;align-items:center;gap:14px;margin-top:20px}a{color:#b7c5ff;text-decoration:none;font-size:14px;font-weight:600}.install{padding:10px 14px;border-radius:9px;background:#7790ff;color:#0c1429}.muted{font-size:12px;color:#97a4ba}footer{margin-top:28px;color:#8391a8;font-size:13px;line-height:1.6}@media(max-width:500px){main{padding:28px 16px}article{padding:18px}.icon{display:none}h1{font-size:30px}}
-        </style></head><body><main><header><div class=eyebrow>LOADSIDE · LOCAL LIBRARY</div><h1>Your apps, ready to share.</h1><p>\(apps.count) signed \(apps.count == 1 ? "app" : "apps") hosted by your Mac.</p></header><div class=notice>\(session.installEnabled ? "Installation uses your configured HTTPS server. Its certificate must be trusted by this device. App signing, provisioning, and device eligibility still apply; installation has not been device-qualified." : "Download apps over your local network. Direct iPhone and iPad installation needs an HTTPS server with a certificate trusted by the device. Configure an HTTPS reverse proxy in LoadSide to enable installation links.")</div><section class=grid>\(rows.isEmpty ? "<p>No signed apps have been added to this library yet.</p>" : rows)</section><footer>This private link grants access to the listed apps. Keep it private and stop sharing in LoadSide when finished. The Mac must remain awake and connected. HTTP local links are unencrypted.</footer></main></body></html>
+        :root{color-scheme:light dark;font:17px -apple-system,BlinkMacSystemFont,sans-serif}body{margin:0;background:#10131a;color:#e7edf7}main{max-width:1100px;margin:auto;padding:48px 28px}header{margin-bottom:30px}h1{font-size:40px;letter-spacing:-1px;margin:8px 0}h2{font-size:21px;margin:0 0 8px}p{color:#9eaabd;line-height:1.55;margin:4px 0;overflow-wrap:anywhere}.eyebrow{color:#a6b7ff;font-weight:600;font-size:14px;letter-spacing:1.5px}.notice{padding:18px 22px;background:#202737;border-radius:14px;margin:24px 0;line-height:1.6;color:#c2cbda}.grid{display:grid;gap:18px;grid-template-columns:repeat(auto-fit,minmax(min(100%,460px),1fr))}article{display:flex;gap:18px;border:1px solid #30394b;background:#191f2b;border-radius:20px;padding:24px}.icon{flex-shrink:0;width:54px;height:54px;border-radius:13px;background:#303e73;color:#cad5ff;display:grid;place-items:center;font-size:26px;font-weight:700}.details{min-width:0}.actions{display:flex;flex-wrap:wrap;align-items:center;gap:14px;margin-top:22px}a{color:#b7c5ff;text-decoration:none;font-size:16px;font-weight:600;display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;min-height:44px;padding:11px 16px;border-radius:10px;background:#252f45}a:focus-visible{outline:3px solid #cbd5ff;outline-offset:3px}.install{background:#7790ff;color:#0c1429}.muted{font-size:13px;color:#97a4ba}footer{margin-top:28px;color:#8391a8;font-size:14px;line-height:1.6}@media(max-width:500px){main{padding:30px 18px}article{padding:20px}.icon{display:none}h1{font-size:33px}}
+        </style></head><body><main><header><div class=eyebrow>LOADSIDE · LOCAL LIBRARY</div><h1>Your apps, ready to share.</h1><p>\(apps.count) signed \(apps.count == 1 ? "app" : "apps") hosted by your Mac.</p></header><div class=notice>\(session.installEnabled ? "Open this page in Safari on your iPhone or iPad and tap Install on device. Keep LoadSide open while installation completes. App signing, provisioning, and device eligibility still apply; an install link does not verify installation or launch." : "Download apps over your local network. Direct iPhone and iPad installation needs an HTTPS server with a certificate trusted by the device. Select Automatic HTTPS in LoadSide to enable installation links.")</div><section class=grid>\(rows.isEmpty ? "<p>No signed apps have been added to this library yet.</p>" : rows)</section><footer>This private link grants access to the listed apps. Keep it private and stop sharing in LoadSide when finished. The Mac must remain awake and connected. HTTP local links are unencrypted.</footer></main></body></html>
         """
     }
     static func escape(_ value: String) -> String {
