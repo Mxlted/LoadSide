@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Separate local HTTP protocol handling from listener/transfer lifecycle. Parse CRLF framing as bytes so final header values remain intact, reject malformed body declarations, and close failed transfers without appending a second HTTP response.
+
 - Separate bundle inventory and shared IPA export transactions from signing orchestration; move reusable synthetic test fixtures into a dedicated support directory.
 - Fail closed on unreadable archive/injection directories, ambiguous rootful/rootless injection aliases, and malformed signatures whose filenames mimic unsigned-code diagnostics. Preserve engine event IDs and timestamps during diagnostic redaction.
 

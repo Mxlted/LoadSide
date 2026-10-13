@@ -173,6 +173,7 @@ private actor LocalHTTPClient {
     private let onFinish: @Sendable () -> Void
     private var input = Data()
     private var finished = false
+    private var responseStarted = false
     private var deadline: Task<Void, Never>?
     private var lifetime: Task<Void, Never>?
     private var work: Task<Void, Never>?
@@ -225,51 +226,73 @@ private actor LocalHTTPClient {
         do {
             let request = try LocalHTTP.parse(data)
             guard request.method == "GET" || request.method == "HEAD" else { await error(405); return }
-            let prefix = session.localURL.path.hasSuffix("/") ? session.localURL.path : session.localURL.path + "/"
-            guard request.target.hasPrefix(prefix) else { await error(404); return }
-            let relative = String(request.target.dropFirst(prefix.count))
-            if relative.isEmpty {
-                let catalog = try await library.library()
-                let page = LocalHTTP.page(catalog.apps, session: session)
-                try await respondData(Data(page.utf8), type: "text/html; charset=utf-8", headOnly: request.method == "HEAD")
-            } else {
-                let parts = relative.split(separator: "/", omittingEmptySubsequences: false)
-                guard parts.count == 2, parts[0] == "apps" else { await error(404); return }
-                let name = String(parts[1]), isManifest = name.hasSuffix(".plist"), suffix = isManifest ? ".plist" : ".ipa"
-                guard name.hasSuffix(suffix), let id = UUID(uuidString: String(name.dropLast(suffix.count))), name == id.uuidString + suffix else { await error(404); return }
-                if isManifest {
-                    guard let https = session.httpsURL else { await error(404); return }
-                    let app = try await library.record(id)
-                    guard app.supportsInstallation else { await error(404); return }
-                    let data = try LocalHTTP.manifest(app, baseURL: https)
-                    try await respondData(data, type: "text/xml; charset=utf-8", headOnly: request.method == "HEAD")
-                } else {
-                    let download = try await library.download(id)
-                    defer { try? download.handle.close() }
-                    guard !finished else { return }
-                    let size = download.record.byteCount
-                    let range: ClosedRange<Int64>
-                    do { range = try LocalHTTP.byteRange(request.headers["range"], size: size) }
-                    catch { await self.error(416, extra: "Content-Range: bytes */\(size)\r\n"); return }
-                    let partial = request.headers["range"] != nil, length = range.upperBound - range.lowerBound + 1
-                    var extra = "Accept-Ranges: bytes\r\nContent-Disposition: attachment; filename=\"\(id.uuidString).ipa\"\r\n"
-                    if partial { extra += "Content-Range: bytes \(range.lowerBound)-\(range.upperBound)/\(size)\r\n" }
-                    try await send(LocalHTTP.headers(status: partial ? 206 : 200, length: length, type: "application/octet-stream", extra: extra))
-                    if request.method != "HEAD" {
-                        try download.handle.seek(toOffset: UInt64(range.lowerBound))
-                        var remaining = length
-                        while remaining > 0 {
-                            try Task.checkCancellation()
-                            guard !finished, let block = try download.handle.read(upToCount: Int(min(256 * 1_024, remaining))), !block.isEmpty else { throw CancellationError() }
-                            try await send(block); remaining -= Int64(block.count)
-                        }
-                    }
-                    await completeResponse()
-                }
+            guard let route = LocalHTTP.route(request.target, localURL: session.localURL) else {
+                await error(404)
+                return
+            }
+            let headOnly = request.method == "HEAD"
+            switch route {
+            case .catalog:
+                try await respondCatalog(headOnly: headOnly)
+            case let .manifest(id):
+                try await respondManifest(id, headOnly: headOnly)
+            case let .archive(id):
+                try await respondArchive(id, rangeHeader: request.headers["range"], headOnly: headOnly)
             }
         } catch is CancellationError { cancel() }
         catch { await self.error(404) } // Never expose paths, metadata decode errors, or credentials over HTTP.
     }
+
+    private func respondCatalog(headOnly: Bool) async throws {
+        let catalog = try await library.library()
+        let page = LocalHTTP.page(catalog.apps, session: session)
+        try await respondData(Data(page.utf8), type: "text/html; charset=utf-8", headOnly: headOnly)
+    }
+
+    private func respondManifest(_ id: UUID, headOnly: Bool) async throws {
+        guard let https = session.httpsURL else { await error(404); return }
+        let app = try await library.record(id)
+        guard app.supportsInstallation else { await error(404); return }
+        let data = try LocalHTTP.manifest(app, baseURL: https)
+        try await respondData(data, type: "text/xml; charset=utf-8", headOnly: headOnly)
+    }
+
+    private func respondArchive(_ id: UUID, rangeHeader: String?, headOnly: Bool) async throws {
+        let download = try await library.download(id)
+        defer { try? download.handle.close() }
+        guard !finished else { return }
+
+        let size = download.record.byteCount
+        let range: ClosedRange<Int64>
+        do { range = try LocalHTTP.byteRange(rangeHeader, size: size) }
+        catch { await self.error(416, extra: "Content-Range: bytes */\(size)\r\n"); return }
+        let partial = rangeHeader != nil
+        let length = range.upperBound - range.lowerBound + 1
+        var extra = "Accept-Ranges: bytes\r\nContent-Disposition: attachment; filename=\"\(id.uuidString).ipa\"\r\n"
+        if partial { extra += "Content-Range: bytes \(range.lowerBound)-\(range.upperBound)/\(size)\r\n" }
+        try await sendHeaders(status: partial ? 206 : 200, length: length, type: "application/octet-stream", extra: extra)
+        if !headOnly {
+            try download.handle.seek(toOffset: UInt64(range.lowerBound))
+            var remaining = length
+            while remaining > 0 {
+                try Task.checkCancellation()
+                guard !finished,
+                      let block = try download.handle.read(upToCount: Int(min(256 * 1_024, remaining))),
+                      !block.isEmpty else { throw CancellationError() }
+                try await send(block)
+                remaining -= Int64(block.count)
+            }
+        }
+        await completeResponse()
+    }
+
+    private func sendHeaders(status: Int, length: Int64, type: String, extra: String = "") async throws {
+        // Even a failed send may have written part of the headers. Once committed, any
+        // preparation or transport failure must close the stream, never append a response.
+        responseStarted = true
+        try await send(LocalHTTP.headers(status: status, length: length, type: type, extra: extra))
+    }
+
     private func send(_ data: Data) async throws {
         guard !finished else { throw CancellationError() }
         armTimeout(seconds: 30)
@@ -280,13 +303,14 @@ private actor LocalHTTPClient {
         }
     }
     private func respondData(_ data: Data, type: String, headOnly: Bool) async throws {
-        try await send(LocalHTTP.headers(status: 200, length: Int64(data.count), type: type))
+        try await sendHeaders(status: 200, length: Int64(data.count), type: type)
         if !headOnly { try await send(data) }
         await completeResponse()
     }
     private func error(_ status: Int, extra: String = "") async {
         guard !finished else { return }
-        try? await send(LocalHTTP.headers(status: status, length: 0, type: "text/plain", extra: extra))
+        guard !responseStarted else { cancel(); return }
+        try? await sendHeaders(status: status, length: 0, type: "text/plain", extra: extra)
         await completeResponse()
     }
     private func completeResponse() async {
@@ -298,88 +322,4 @@ private actor LocalHTTPClient {
         }
         cancel()
     }
-}
-
-enum LocalHTTP {
-    static let maximumHeaderBytes = 16 * 1_024
-    struct Request { let method: String; let target: String; let headers: [String: String] }
-    static func validateHTTPSBase(_ url: URL?) throws -> URL? {
-        guard let url else { return nil }
-        guard let parts = URLComponents(url: url, resolvingAgainstBaseURL: false), parts.scheme == "https",
-              let host = parts.host, !host.isEmpty, parts.user == nil, parts.password == nil,
-              parts.query == nil, parts.fragment == nil, parts.path == "" || parts.path == "/",
-              parts.port == nil || (1...65_535).contains(parts.port!) else {
-            throw LoadSideError("server.https", "Use an HTTPS origin such as https://apps.example.com, without a path, credentials, query, or fragment.")
-        }
-        return url
-    }
-    static func parse(_ data: Data) throws -> Request {
-        guard data.count <= maximumHeaderBytes, let string = String(data: data, encoding: .ascii), string.hasSuffix("\r\n\r\n") else { throw invalid() }
-        let lines = string.dropLast(4).components(separatedBy: "\r\n")
-        guard lines.count <= 100, let first = lines.first else { throw invalid() }
-        let request = first.components(separatedBy: " ")
-        guard request.count == 3, ["HTTP/1.0", "HTTP/1.1"].contains(request[2]),
-              request[0].allSatisfy({ $0.isASCII && $0.isUppercase }), !request[0].isEmpty,
-              request[1].hasPrefix("/"), request[1].utf8.count <= 2_048,
-              !request[1].contains("%"), !request[1].contains("?"), !request[1].contains("#"),
-              !request[1].contains("\\"), !request[1].contains(".."),
-              request[1].utf8.allSatisfy({ $0 > 32 && $0 < 127 }) else { throw invalid() }
-        var headers: [String: String] = [:]
-        for line in lines.dropFirst() {
-            guard let colon = line.firstIndex(of: ":"), colon != line.startIndex,
-                  line.utf8.allSatisfy({ $0 == 9 || ($0 >= 32 && $0 < 127) }) else { throw invalid() }
-            let key = String(line[..<colon]).lowercased(), value = String(line[line.index(after: colon)...]).trimmingCharacters(in: .whitespaces)
-            guard key.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-") }), headers[key] == nil else { throw invalid() }
-            headers[key] = value
-        }
-        guard headers["transfer-encoding"] == nil, headers["content-length"] == nil || headers["content-length"] == "0" else { throw invalid() }
-        return Request(method: request[0], target: request[1], headers: headers)
-    }
-    static func byteRange(_ header: String?, size: Int64) throws -> ClosedRange<Int64> {
-        guard size > 0 else { throw invalid() }
-        guard let header else { return 0...(size - 1) }
-        guard header.hasPrefix("bytes=") else { throw invalid() }
-        let pieces = header.dropFirst(6).split(separator: "-", omittingEmptySubsequences: false)
-        guard pieces.count == 2, pieces.allSatisfy({ $0.allSatisfy({ $0.isASCII && $0.isNumber }) }) else { throw invalid() }
-        if pieces[0].isEmpty {
-            guard let count = Int64(pieces[1]), count > 0 else { throw invalid() }
-            return max(0, size - count)...(size - 1)
-        }
-        guard let start = Int64(pieces[0]), start >= 0, start < size else { throw invalid() }
-        let end: Int64
-        if pieces[1].isEmpty { end = size - 1 }
-        else { guard let number = Int64(pieces[1]), number >= start else { throw invalid() }; end = min(size - 1, number) }
-        return start...end
-    }
-    static func headers(status: Int, length: Int64, type: String, extra: String = "") -> Data {
-        let reason = [200: "OK", 206: "Partial Content", 404: "Not Found", 405: "Method Not Allowed", 416: "Range Not Satisfiable", 431: "Request Header Fields Too Large"][status] ?? "Bad Request"
-        return Data("HTTP/1.1 \(status) \(reason)\r\nContent-Length: \(length)\r\nContent-Type: \(type)\r\nConnection: close\r\nCache-Control: no-store\r\nReferrer-Policy: no-referrer\r\nX-Content-Type-Options: nosniff\r\nContent-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'\r\n\(extra)\r\n".utf8)
-    }
-    static func manifest(_ app: LocalAppRecord, baseURL: URL) throws -> Data {
-        guard let version = app.bundleVersion, try validateHTTPSBase(baseURL.deletingLastPathComponent()) != nil else { throw invalid() }
-        let dictionary: [String: Any] = ["items": [[
-            "assets": [["kind": "software-package", "url": baseURL.appendingPathComponent("apps/\(app.id.uuidString).ipa").absoluteString]],
-            "metadata": ["bundle-identifier": app.bundleIdentifier, "bundle-version": version, "kind": "software", "title": app.displayName]
-        ]]]
-        return try PropertyListSerialization.data(fromPropertyList: dictionary, format: .xml, options: 0)
-    }
-    static func page(_ apps: [LocalAppRecord], session: LocalAppServerSession) -> String {
-        let rows = apps.map { app in
-            let installation = session.installURL(for: app).map { "<a class=install href=\"\(escape($0.absoluteString))\">Install on device</a>" } ?? "<span class=muted>\(app.supportsInstallation ? "Install requires HTTPS setup" : "Download only · bundle version unavailable")</span>"
-            return """
-            <article><div class=icon>\(escape(String(app.displayName.prefix(1)).uppercased()))</div><div class=details><h2>\(escape(app.displayName))</h2><p>\(escape(app.bundleIdentifier))</p><p>\(escape(app.bundleVersion ?? "Version unavailable")) · \(escape(ByteCountFormatter.string(fromByteCount: app.byteCount, countStyle: .file))) · Signed and verified at export</p><div class=actions>\(installation)<a href=\"\(escape(session.downloadURL(for: app).absoluteString))\" download>Download IPA</a></div></div></article>
-            """
-        }.joined(separator: "\n")
-        return """
-        <!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>LoadSide App Library</title><style>
-        :root{color-scheme:light dark;font:17px -apple-system,BlinkMacSystemFont,sans-serif}body{margin:0;background:#10131a;color:#e7edf7}main{max-width:1100px;margin:auto;padding:48px 28px}header{margin-bottom:30px}h1{font-size:40px;letter-spacing:-1px;margin:8px 0}h2{font-size:21px;margin:0 0 8px}p{color:#9eaabd;line-height:1.55;margin:4px 0;overflow-wrap:anywhere}.eyebrow{color:#a6b7ff;font-weight:600;font-size:14px;letter-spacing:1.5px}.notice{padding:18px 22px;background:#202737;border-radius:14px;margin:24px 0;line-height:1.6;color:#c2cbda}.grid{display:grid;gap:18px;grid-template-columns:repeat(auto-fit,minmax(min(100%,460px),1fr))}article{display:flex;gap:18px;border:1px solid #30394b;background:#191f2b;border-radius:20px;padding:24px}.icon{flex-shrink:0;width:54px;height:54px;border-radius:13px;background:#303e73;color:#cad5ff;display:grid;place-items:center;font-size:26px;font-weight:700}.details{min-width:0}.actions{display:flex;flex-wrap:wrap;align-items:center;gap:14px;margin-top:22px}a{color:#b7c5ff;text-decoration:none;font-size:16px;font-weight:600;display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;min-height:44px;padding:11px 16px;border-radius:10px;background:#252f45}a:focus-visible{outline:3px solid #cbd5ff;outline-offset:3px}.install{background:#7790ff;color:#0c1429}.muted{font-size:13px;color:#97a4ba}footer{margin-top:28px;color:#8391a8;font-size:14px;line-height:1.6}@media(max-width:500px){main{padding:30px 18px}article{padding:20px}.icon{display:none}h1{font-size:33px}}
-        </style></head><body><main><header><div class=eyebrow>LOADSIDE · LOCAL LIBRARY</div><h1>Your apps, ready to share.</h1><p>\(apps.count) signed \(apps.count == 1 ? "app" : "apps") hosted by your Mac.</p></header><div class=notice>\(session.installEnabled ? "Open this page in Safari on your iPhone or iPad and tap Install on device. Keep LoadSide open while installation completes. App signing, provisioning, and device eligibility still apply; an install link does not verify installation or launch." : "Download apps over your local network. Direct iPhone and iPad installation needs an HTTPS server with a certificate trusted by the device. Select Automatic HTTPS in LoadSide to enable installation links.")</div><section class=grid>\(rows.isEmpty ? "<p>No signed apps have been added to this library yet.</p>" : rows)</section><footer>This private link grants access to the listed apps. Keep it private and stop sharing in LoadSide when finished. The Mac must remain awake and connected. HTTP local links are unencrypted.</footer></main></body></html>
-        """
-    }
-    static func escape(_ value: String) -> String {
-        value.replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "<", with: "&lt;")
-            .replacingOccurrences(of: ">", with: "&gt;").replacingOccurrences(of: "\"", with: "&quot;")
-            .replacingOccurrences(of: "'", with: "&#39;")
-    }
-    private static func invalid() -> LoadSideError { LoadSideError("server.request", "Unsupported local server request.") }
 }
