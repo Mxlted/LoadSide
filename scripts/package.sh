@@ -4,7 +4,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 usage() {
   cat <<'EOF'
-Usage: scripts/package.sh --local [--skip-build] [--archive]
+Usage: scripts/package.sh --local [--skip-build | --archive]
        scripts/package.sh --production
 
 Local mode replaces dist/LoadSide.app and its dist/loadside CLI link after
@@ -14,6 +14,7 @@ it always rebuilds and creates a versioned ZIP and checksum without overwriting.
 Both modes require native Apple Silicon and verify arm64-only binaries, minimum
 macOS and the current linked SDK for the app and every bundled executable.
 --skip-build refuses stale SDK metadata; rebuild normally after changing Xcode.
+It cannot be combined with --archive, and records binary source as unverified.
 EOF
 }
 [[ $# -gt 0 ]] || { usage >&2; exit 2; }
@@ -32,6 +33,10 @@ while [[ $# -gt 0 ]]; do
   esac
   shift
 done
+if [[ "$SKIP_BUILD" == true && "$CREATE_ARCHIVE" == true ]]; then
+  echo '--skip-build cannot be combined with --archive: archive source provenance requires a build.' >&2
+  exit 2
+fi
 source scripts/build-support.sh
 loadside_require_supported_host
 if [[ "$MODE" == "--production" ]]; then
@@ -102,9 +107,12 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Helpers" "$APP/Contents/Resources"
 cp "$BIN_DIR/LoadSideApp" "$APP/Contents/MacOS/LoadSide"
 cp "$BIN_DIR/loadside" "$APP/Contents/Helpers/loadside"
 cp Assets/Info.plist "$APP/Contents/Info.plist"
+CHECKOUT_COMMIT="$(git rev-parse HEAD)"
+SOURCE_COMMIT="$CHECKOUT_COMMIT"
+if [[ "$SKIP_BUILD" == true ]]; then SOURCE_COMMIT=unverified; fi
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${VERSION%%-*}" "$APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :LoadSideVersion $VERSION" "$APP/Contents/Info.plist"
-/usr/libexec/PlistBuddy -c "Set :LoadSideCommit $(git rev-parse HEAD)" "$APP/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :LoadSideCommit $SOURCE_COMMIT" "$APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :LoadSideBuildType ${MODE#--}" "$APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $(git rev-list --count HEAD)" "$APP/Contents/Info.plist"
 swift scripts/make-icon.swift "$STAGING/LoadSide.iconset"
@@ -114,8 +122,15 @@ cp LICENSE "$APP/Contents/Resources/"
 SOURCE_STATE=clean
 if [[ -n "$(git status --porcelain)" ]]; then SOURCE_STATE=modified; fi
 {
-  printf 'LoadSide: %s\nBuild type: %s\nSource commit: %s\nSource tree: %s\n' "$VERSION" "${MODE#--}" "$(git rev-parse HEAD)" "$SOURCE_STATE"
+  printf 'LoadSide: %s\nBuild type: %s\n' "$VERSION" "${MODE#--}"
+  if [[ "$SKIP_BUILD" == true ]]; then
+    printf 'Source commit: unverified (existing binaries reused)\nSource tree: unverified\n'
+    printf 'Packaging checkout: %s\nPackaging checkout state: %s\n' "$CHECKOUT_COMMIT" "$SOURCE_STATE"
+  else
+    printf 'Source commit: %s\nSource tree: %s\n' "$SOURCE_COMMIT" "$SOURCE_STATE"
+  fi
   printf 'Architecture: arm64\nMinimum macOS: %s\nBuild SDK: %s\n' "$LOADSIDE_MINIMUM_MACOS" "$LOADSIDE_MACOS_SDK_VERSION"
+  if [[ "$SKIP_BUILD" == true ]]; then printf 'Packaging toolchain (original compiler unverified):\n'; fi
   swift --version
 } > "$APP/Contents/Resources/BuildInfo.txt"
 mkdir -p "$APP/Contents/Resources/Documentation"
@@ -180,5 +195,6 @@ if [[ "$MODE" == "--local" ]]; then
   echo "Local app: $LOCAL_APP"
   echo "Local CLI: $LOCAL_CLI"
   echo 'LOCAL BUILD: ad-hoc signed; not notarized or approved for public release.'
+  if [[ "$SKIP_BUILD" == true ]]; then echo 'SKIPPED BUILD: binary source commit and original compiler are unverified.'; fi
 fi
 PACKAGE_COMPLETE=true

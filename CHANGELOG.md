@@ -13,7 +13,7 @@ This candidate remains unqualified for a public binary release. It targets Apple
 - Bound untrusted metadata, profile, credential, and Mach-O reads on their opened file descriptors, rejecting changed files and special-file inputs.
 - Clear the previous certificate's session password when changing or removing an identity.
 - Wait for local sharing's network listener to release its port before restarting; coordinate concurrent stop requests and rotate access links each session.
-- Verify version consistency, complete Git history, source/toolchain provenance, ZIP extraction, signatures, and CLI execution when packaging; preserve non-overwriting artifact publication.
+- Verify version consistency, complete Git history, source/toolchain provenance, ZIP extraction, signatures, and CLI execution when packaging; preserve non-overwriting artifact publication. Require a build for archives and label skipped-build local app provenance as unverified.
 - Add offline documentation-link checking and hosted release-readiness checks. Keep production signing on a trusted release Mac.
 - Publish focused installation, getting-started, sharing, CLI, and troubleshooting guides, with genuine application screenshots and a concise README.
 

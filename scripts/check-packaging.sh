@@ -33,10 +33,13 @@ expect_rejection 'Set a Developer ID Application identity' env -u LOADSIDE_SIGNI
 expect_rejection 'Set the name of an existing notarytool keychain profile' env -u LOADSIDE_NOTARY_PROFILE LOADSIDE_SIGNING_IDENTITY=unused-test-identity "$PACKAGE_SCRIPT" --production
 expect_rejection 'Production mode does not accept local build options' "$PACKAGE_SCRIPT" --production --skip-build
 expect_rejection 'Usage:' "$PACKAGE_SCRIPT" --local --unknown
+expect_rejection '--skip-build cannot be combined with --archive' "$PACKAGE_SCRIPT" --local --skip-build --archive
+expect_rejection '--skip-build cannot be combined with --archive' "$PACKAGE_SCRIPT" --local --archive --skip-build
+[[ -z "$(ls -A "$QA_DIRECTORY/dist")" ]] || { echo 'FAIL: Rejected skipped-build archive created an output.' >&2; exit 1; }
 
 ARCHIVE="$QA_DIRECTORY/dist/LoadSide-$(cat VERSION)-macOS-arm64-local.zip"
 printf 'existing archive\n' > "$ARCHIVE"
-expect_rejection 'Refusing to overwrite' "$PACKAGE_SCRIPT" --local --archive --skip-build
+expect_rejection 'Refusing to overwrite' "$PACKAGE_SCRIPT" --local --archive
 [[ "$(cat "$ARCHIVE")" == 'existing archive' ]] || { echo 'FAIL: Existing archive changed.' >&2; exit 1; }
 rm "$ARCHIVE"
 
