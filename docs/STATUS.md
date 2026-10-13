@@ -4,6 +4,15 @@ Target: **0.1.0-rc.2**, local evaluation release candidate. This file records ev
 
 The [RC.2 artifact qualification record](QUALIFICATION-0.1.0-rc.2.md) identifies the historical RC.2 app, source commit, checksums and remaining release gates. Qualification records below describe the builds tested at that time; their old artifact paths are historical and are superseded by the canonical local package.
 
+## Automated desktop coverage — 2026-10-13
+
+- Added five hosted UI tests for sidebar navigation, Signing Profiles' return-to-workspace action, signing/unsigned export readiness, mutually exclusive extension policies, nested disclosure actions, and disabled controls during a job. Five additional model tests cover default policies, session reset/password clearing, busy-job guards, input acceptance, and invalid-IPA preflight behavior.
+- Tests use real SwiftUI/AppKit controls in offscreen windows with public accessibility actions, temporary history/profile/library/helper stores, and in-memory passwords. Startup tasks are awaited for deterministic fixture cleanup. Production constructor defaults and asynchronous loading behavior remain unchanged.
+- Extracted the existing signing-options content into `SigningOptionsView`, with all four disclosure bindings still owned by `WorkspaceView`. The in-process accessibility bridge omits virtual controls inside some scroll views, so component tests host that same content directly. No application test mode, external test framework, Xcode project, global input injection, or new runtime dependency was added.
+- All **10 focused UI/model tests** and the full XcodeBuildMCP debug build passed. `scripts/check.sh` passed **169 tests** (147 core, 9 CLI, 13 app) with zero failures or skips, plus formatting, packaging guards, release compilation, SDK verification, CLI smoke checks, and tracked-file hygiene. Swift warnings and C deprecations were treated as errors; no compiler or SwiftUI runtime warnings were emitted. Independent review found no blocking issues.
+- Universal ARM64/x86_64 local packaging and strict ad-hoc signature verification passed, updating `dist/LoadSide.app` and `dist/loadside`. Packaging emitted an x86_64 architecture deprecation warning referring to macOS 27; independent build-metadata checks confirmed both app/CLI slices and both C adapter objects still target macOS 14 with SDK 27. This toolchain warning was not suppressed, and Intel support was retained. No release ZIP or public distribution was created.
+- Coverage limits: segmented-picker actions, full scroll-container interaction, system file/Keychain dialogs, menu shortcuts, process launch/quit, VoiceOver and physical pointer behavior still require manual qualification. Hosted segmented-picker action experiments emitted SwiftUI runtime warnings and were removed; their disabled state and each workflow's export readiness are covered. No device, Intel/minimum-macOS runtime, Developer ID, or notarization qualification is claimed.
+
 ## Keychain compatibility and isolation — 2026-10-13
 
 - Confined the required legacy file-Keychain lifecycle and trusted-application ACL calls to `CFileKeychain`. Apple does not provide equivalent `SecItem` operations for disposable keychains used by `codesign`; the adapter has a documented, implementation-local deprecation waiver. Swift warnings and C deprecations elsewhere now fail repository checks. This is a compatibility boundary, not a storage-backend migration.
@@ -120,10 +129,10 @@ The [RC.2 artifact qualification record](QUALIFICATION-0.1.0-rc.2.md) identifies
 | Safe IPA/DEB handling | Verified locally | Adversarial archive tests, thin/fat Mach-O editing, real DEB injection and signing |
 | Certificate/profile validation | Verified locally | Apple-signed profile validation, actual P12 import, certificate matching, isolated-keychain native integration tests |
 | Signing and entitlement policy | Verified locally | Actual supplied IPA signed with matching credentials; strict rejects unsupported capabilities, compatible records omissions |
-| Desktop workflows | Implemented / visually reviewed | Redesigned native workspace, visible app-ID plan, saved identity selection, extension warnings, DEB picker and reset defaults checked through the UI |
+| Desktop workflows | Hosted interactions and models tested / visually reviewed | Five hosted UI tests and five workspace-model regressions; file dialogs, picker actions and full process UI still require manual qualification |
 | Saved signing profiles | Verified locally | Actual supplied identity saved, private copies reused after temporary import sources were deleted, rename/delete/reload and native Keychain CRUD verified |
 | Automatic app-ID resolution | Verified locally | Explicit profile mismatch resolved without a manual override; ambiguity, wildcard, Preserve and certificate membership tested |
-| Automated tests | Passing | 117 tests, zero failures or skips in the current working-tree evaluation; unit, adversarial, native-tool and local HTTP integration |
+| Automated tests | Passing | 169 tests, zero failures or skips in the current working-tree evaluation; unit, adversarial, native-tool, hosted UI and local HTTP integration |
 | Build and release automation | Local package verified / CI configured | Canonical universal app and embedded CLI verified, SDK/deployment stamps checked; ZIP creation is explicit; Apple silicon/Intel GitHub workflows have not run |
 | Device installation and launch | Unverified | Exported IPA has not been installed or exercised on a registered iOS device |
 | Developer ID / notarization | Credentials needed | No macOS distribution identity or notary credentials supplied; local artifacts are ad-hoc signed |

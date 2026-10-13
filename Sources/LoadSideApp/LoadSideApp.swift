@@ -183,6 +183,7 @@ struct MainView: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .accessibilityIdentifier("navigation.\(section)")
                     .accessibilityAddTraits(model.section == section ? .isSelected : [])
                 }
             }

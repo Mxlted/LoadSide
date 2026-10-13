@@ -34,6 +34,7 @@ The release scripts deliberately forward the selected macOS SDK to both compilat
 | Shared library and browser downloads | `LocalAppLibrary`, `LocalAppServer`, `LocalHTTP` |
 | HTTPS helper lifecycle | `CloudflaredInstaller`, `LocalAppTunnel` |
 | Desktop state and persistence | `WorkspaceModel`, `LocalLibraryModel`, `JobRecord`, `JobHistoryStore` |
+| Signing controls and disclosure state | `WorkspaceView`, `SigningOptionsView`, `FullRowDisclosureStyle` |
 | CLI parsing and execution | `LoadSideCLI` and its adjacent support files |
 
 Keep policy and filesystem safety in `LoadSideCore`; clients translate input and display real engine events. Keep a coordinating model together when its state changes together. Extract independent responsibilities, not one file per method.
@@ -48,7 +49,11 @@ Prefer descriptive domain names, early validation, and small helpers with explic
 
 Keep changes focused and add meaningful tests for parsing, policy, cleanup, or export behavior. Unit tests must not require real credentials, internet access, or the login keychain. Local server tests use loopback sockets and synthetic IPA bytes. Native-tool integration tests use generated fixtures in temporary directories, but must not weaken production trust checks. One native password-storage integration test creates and removes a uniquely namespaced generic-password item in the default macOS Keychain; it may require an unlocked Keychain. Signing identity tests use disposable keychains. Synthetic success never establishes iOS installation support.
 
-`LoadSideCoreTests/Support` contains shared binary, archive, profile, and library fixtures. Put reusable fixture builders there rather than hiding them in an unrelated test case. Keep scenario-specific helpers next to their tests. `LoadSideAppTests` covers history compatibility and persistence without opening windows; `LoadSideCLITests` covers argument and credential-input boundaries without signing a user archive.
+`LoadSideCoreTests/Support` contains shared binary, archive, profile, and library fixtures. Put reusable fixture builders there rather than hiding them in an unrelated test case. Keep scenario-specific helpers next to their tests. `LoadSideAppTests` covers history compatibility, persistence, and hosted desktop controls; `LoadSideCLITests` covers argument and credential-input boundaries without signing a user archive.
+
+Run `swift test --filter 'WorkspaceAccessibilityTests|WorkspaceModelTests'` for desktop regressions. Interaction tests host the real SwiftUI views in a native window, enable SwiftUI's documented accessibility environment, and invoke public AppKit accessibility actions. They require a macOS WindowServer session but no cross-process Accessibility permission. The in-process bridge omits some virtual controls inside scroll views, so signing options are also hosted directly as the same production component. Test models receive private temporary stores and in-memory passwords; initialization is awaited before cleanup. Use stable accessibility identifiers for controls and bounded waits for rendered state.
+
+Keep segmented-picker actions, file dialogs, system Keychain prompts, application menu shortcuts, and full process launch/quit checks in the manual qualification workflow. Hosted segmented-picker actions currently produce a SwiftUI view-update warning, so tests check their disabled state and both workflows' rendered readiness without driving those actions. Hosted interactions do not replace VoiceOver and pointer testing or establish complete scroll-container behavior.
 
 For archive and binary changes, include malformed-input and traversal coverage. For entitlement changes, include explicit/wildcard profiles, type mismatches, team/app-prefix differences, extension cases, and strict/compatible outcomes. For process changes, cover cancellation, timeout, bounded output, and cleanup. Test the failure boundary, including unchanged source bytes, no partial final export, and temporary-work cleanup.
 

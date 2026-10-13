@@ -14,7 +14,7 @@ enum ProfileInspection: Sendable {
 final class WorkspaceModel: ObservableObject {
     @Published var section: AppSection = .workspace
     @Published var jobMode: JobMode = .sign
-    let localLibrary = LocalLibraryModel()
+    let localLibrary: LocalLibraryModel
     @Published var ipa: URL? { didSet { refreshIPAInspection() } }
     @Published var certificate: URL? { didSet { if !applyingSavedSelection { invalidateSavedSelection() } } }
     @Published var password = ""
@@ -59,12 +59,26 @@ final class WorkspaceModel: ObservableObject {
     private var ipaInspectionTask: Task<Void, Never>?
     private var savedSelectionToken = UUID()
     private var applyingSavedSelection = false
-    private let savedProfileStore = SavedSigningProfileStore()
-    private let historyStore = JobHistoryStore()
+    private let savedProfileStore: SavedSigningProfileStore
+    private let historyStore: JobHistoryStore
+    private var initialLoadTask: Task<Void, Never>?
 
-    init() {
+    init(
+        historyStore: JobHistoryStore = JobHistoryStore(),
+        savedProfileStore: SavedSigningProfileStore = SavedSigningProfileStore(),
+        localLibrary: LocalLibraryModel = LocalLibraryModel()
+    ) {
+        self.historyStore = historyStore
+        self.savedProfileStore = savedProfileStore
+        self.localLibrary = localLibrary
         loadHistory()
-        Task { [weak self] in await self?.loadSavedSigningProfiles(restoreSelection: true) }
+        initialLoadTask = Task { [weak self] in await self?.loadSavedSigningProfiles(restoreSelection: true) }
+    }
+
+    /// Wait for this instance's startup work without scheduling duplicate loads.
+    func waitForInitialLoad() async {
+        await initialLoadTask?.value
+        await localLibrary.waitForInitialLoad()
     }
 
     // MARK: - Input readiness

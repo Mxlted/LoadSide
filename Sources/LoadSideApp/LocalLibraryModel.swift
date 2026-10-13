@@ -24,17 +24,24 @@ final class LocalLibraryModel: ObservableObject {
     private var updateCount = 0 {
         didSet { isUpdating = updateCount > 0 }
     }
-    private let store = LocalAppLibrary()
-    private let installer = CloudflaredInstaller()
+    private let store: LocalAppLibrary
+    private let installer: CloudflaredInstaller
     private var server: LocalAppServer?
     private var tunnel: LocalAppTunnel?
     private var startupTask: Task<Void, Never>?
+    private var initialLoadTask: Task<Void, Never>?
     private var generation: UUID?
     private var isStopping = false
     private var stopWaiters: [CheckedContinuation<Void, Never>] = []
     var needsShutdown: Bool { session != nil || isChangingServer }
 
-    init() { Task { await refresh() } }
+    init(store: LocalAppLibrary = LocalAppLibrary(), installer: CloudflaredInstaller = CloudflaredInstaller()) {
+        self.store = store
+        self.installer = installer
+        initialLoadTask = Task { await refresh() }
+    }
+
+    func waitForInitialLoad() async { await initialLoadTask?.value }
 
     func refresh() async {
         do {
