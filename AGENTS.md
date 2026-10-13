@@ -32,6 +32,14 @@ Use `scripts/format.sh` and `.swift-format` for owned Swift sources; `scripts/ch
 
 Use Context7 MCP for current library/framework/SDK/API/CLI documentation: resolve the library ID first, then query a focused concept. Prefer the alternate Context7 connector if one connection fails authentication. Use official primary documentation when no relevant Context7 documentation is available. General refactoring and business-logic changes do not need a documentation lookup.
 
+## Documentation and feature work
+
+Keep `README.md` a short end-user showcase. Put practical guides in `docs/` and link them through `docs/README.md`; keep the source map and contributor workflow in `CONTRIBUTING.md`. `docs/STATUS.md` records current evidence and blockers; archive superseded detail under `docs/history/` without changing historical claims. Run the offline documentation checker when moving links or assets.
+
+New features must flow through the shared engine where applicable, present actual state and actionable errors, and cover policy boundaries, cancellation, and cleanup. Preserve persisted keys and diagnostic codes unless an intentional migration is documented. Avoid speculative abstractions and dependencies.
+
+Use genuine app captures in `docs/assets/`, with descriptive alt text and provenance. Isolate screenshot stores from user data; never fabricate a successful export, include credentials/session links, or start sharing for presentation. Keep images compact and check every capture before publication.
+
 ## Git and release
 
 Keep commits meaningful, cohesive, and logically organized. Make commits whenever a reasonable, coherent set of changes is complete and relevant verification has passed; avoid unnecessary fragmentation or letting completed work accumulate into one large uncommitted batch. Stage only changes belonging to that commit, preserving unrelated in-progress work. Use clear, professional, imperative commit messages that accurately describe the final consolidated change.
@@ -39,6 +47,8 @@ Keep commits meaningful, cohesive, and logically organized. Make commits wheneve
 Proactively amend, squash, or consolidate commits when appropriate and safe, especially when newer commits fix, refine, or expand the same logical change. Prefer amending the latest commit when continuing that change; squash related work-in-progress commits, follow-up fixes, and minor refinements into a single well-described commit when appropriate. Preserve separate commits for independently meaningful features, changes, or milestones, and retain useful checkpoints during active development. Keep the workflow efficient and maintainable; avoid excessive history cleanup with little practical benefit.
 
 Before rewriting history, verify whether the affected commits are shared or published. Never rewrite shared or published history without explicit authorization, and do not force-push unless explicitly requested.
+
+Audit reachable history as well as the working tree for credentials and private data before a first push. Use `main` for reviewed releases and `codex/` branches for agent work.
 
 Run `scripts/check.sh` before a release. Release packaging must fail closed for missing production signing/notarization credentials unless local mode was explicitly selected. A public release requires the qualification checklist in `docs/RELEASING.md`; outstanding device tests are release blockers, not assumed passes.
 

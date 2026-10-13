@@ -21,6 +21,6 @@ Cleanup covers normal completion, errors, and cancellation. A forced process kil
 
 ## Reporting
 
-Do not file a public issue containing an exploitable vulnerability, private key, profile, or proprietary IPA. Until a repository owner configures a private security advisory channel, report privately to the maintainer through the repository's available private contact channel. Include the affected version, minimal sanitized reproduction, and impact. Do not include customer credentials.
+Do not file a public issue containing an exploitable vulnerability, private key, profile, or proprietary IPA. Use [GitHub private vulnerability reporting](https://github.com/Mxlted/LoadSide/security/advisories/new) to contact the maintainer. Include the affected version, minimal sanitized reproduction, and impact. Do not include customer credentials.
 
 Public-release qualification and known gaps are tracked in [release instructions](docs/RELEASING.md) and [status](docs/STATUS.md).

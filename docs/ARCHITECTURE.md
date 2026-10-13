@@ -2,7 +2,7 @@
 
 ## Decision: native macOS, one signing engine
 
-LoadSide uses Swift 6 and targets Apple Silicon Macs running macOS 14+. The app, CLI, and optional tunnel helper are ARM64-only. SwiftUI provides native file dialogs, keyboard interaction, accessibility, and a responsive desktop interface. Foundation, Security, CryptoKit, Apple's `codesign`, and system libarchive implement signing and archive operations. There are no downloaded runtime packages or embedded language runtimes.
+LoadSide uses Swift 6 and targets Apple Silicon Macs running macOS 14+. The app, CLI, and optional tunnel helper are ARM64-only. SwiftUI provides native file dialogs, keyboard interaction, accessibility, and a responsive desktop interface. Foundation, Security, CryptoKit, Apple's `codesign`, and system libarchive implement signing and archive operations. The signing engine has no downloaded runtime packages or embedded language runtimes. Optional HTTPS sharing downloads a separately verified helper on demand.
 
 Host architecture and archive architecture are separate contracts. Build scripts share one native ARM64 configuration; unsupported hosts and compilation targets fail early. Packaged Mach-O executables must contain exactly ARM64 and retain the macOS 14 deployment target. Universal/fat parsing and editing, per-slice validation, and payload architecture compatibility remain unchanged, including Intel slice inspection. No code from user archives is executed. macOS availability checks remain necessary regardless of CPU architecture.
 
@@ -13,6 +13,8 @@ The app and CLI depend on `LoadSideCore`. `SigningRequest` is immutable job inpu
 ## Source organization
 
 The three Swift targets remain the main architectural boundaries. Inside Core, `SigningEngine` and `InjectionEngine` coordinate their distinct workflows; `BundleInventory` owns staged bundle discovery and metadata, and `IPAExport` owns shared validation, hashing, and exclusive output publication. Neither inventory nor unsigned export depends on signing orchestration. `Archive` and `Injection` propagate directory traversal failures rather than silently omitting unreadable content.
+
+`BoundedFile` centralizes descriptor-based regular-file checks, bounded reads, cancellation, and change detection for untrusted credentials, profiles, metadata, and Mach-O inputs. Archive path tracking includes implicit parent directories, preventing case or Unicode spellings from merging on the filesystem.
 
 The sharing layer separates `LocalAppServer` listener/connection lifecycle and response delivery from `LocalHTTP` request, route, range, manifest, and catalog logic. A connection emits at most one HTTP response: a transfer failure after headers closes the connection rather than appending an error response to IPA bytes.
 

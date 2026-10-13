@@ -15,7 +15,7 @@ scripts/package.sh --local
 open dist/LoadSide.app
 ```
 
-Use `swift test --filter <TestClass>` for the area being changed, then run `scripts/check.sh` before submitting. The full check runs formatting, shell syntax, packaging guards, all test targets, an optimized build, SDK metadata verification, CLI smoke checks, and tracked-file hygiene. Swift warnings and C deprecations are errors; the documented legacy Keychain waiver is confined to `CFileKeychain.c`. `--skip-build` skips **both tests and compilation** and requires existing release binaries; it is only for repeating smoke checks after a verified build.
+Use `swift test --filter <TestClass>` for the area being changed, then run `scripts/check.sh` before submitting. The full check runs formatting, offline documentation links, shell syntax, packaging guards, all test targets, an optimized build, SDK metadata verification, CLI smoke checks, and tracked-file hygiene. Swift warnings and C deprecations are errors; the documented legacy Keychain waiver is confined to `CFileKeychain.c`. `--skip-build` skips **both tests and compilation** and requires existing release binaries; it is only for repeating smoke checks after a verified build.
 
 Interactive agent workflows use `xcodebuildmcp swift-package build` and `test` when available; inspect their `--help` first and pass this checkout as `--package-path`. Repository scripts use Swift directly so CI does not need XcodeBuildMCP. Do not run competing builds against the same build directory.
 
@@ -62,3 +62,11 @@ Keep segmented-picker actions, file dialogs, system Keychain prompts, applicatio
 For archive and binary changes, include malformed-input and traversal coverage. For entitlement changes, include explicit/wildcard profiles, type mismatches, team/app-prefix differences, extension cases, and strict/compatible outcomes. For process changes, cover cancellation, timeout, bounded output, and cleanup. Test the failure boundary, including unchanged source bytes, no partial final export, and temporary-work cleanup.
 
 Pull requests should explain the behavior change, evidence from tests, and remaining device qualification. Never claim installation support based solely on a synthetic signature. Update the changelog and compatibility documentation when the supported surface changes.
+
+## Documentation and screenshots
+
+Keep the [README](README.md) focused on the application, its current release status, screenshots, and a clear starting point. Put detailed user workflows in the [documentation index](docs/README.md); update compatibility and the changelog when behavior changes. `docs/STATUS.md` is a current evidence summary, with older verification records under `docs/history/`.
+
+Run `python3 scripts/check-docs.py` after documentation changes. This checks local Markdown links, anchors, and image paths without internet access. Review external links separately when changing them.
+
+Use genuine, isolated application captures following [screenshot provenance](docs/assets/README.md). Test fixture snapshots are useful layout evidence but must not be presented as successful real exports. Avoid personal paths, credential names, profiles, and live sharing links.

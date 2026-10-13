@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+## 0.1.0-rc.3 — local evaluation candidate
+
+This candidate remains unqualified for a public binary release. It targets Apple Silicon only; historical RC.1/RC.2 universal artifacts do not indicate current Intel support.
+
+### Release preparation and reliability
+
+- Reject case- or Unicode-colliding archive parent paths, including implicitly created directories, before extraction or export.
+- Keep strict entitlement checks type-safe for malformed boolean claims; compatible removal remains explicit and diagnostic.
+- Bound untrusted metadata, profile, credential, and Mach-O reads on their opened file descriptors, rejecting changed files and special-file inputs.
+- Clear the previous certificate's session password when changing or removing an identity.
+- Verify version consistency, complete Git history, source/toolchain provenance, ZIP extraction, signatures, and CLI execution when packaging; preserve non-overwriting artifact publication.
+- Add offline documentation-link checking and hosted release-readiness checks. Keep production signing on a trusted release Mac.
+- Publish focused installation, getting-started, sharing, CLI, and troubleshooting guides, with genuine application screenshots and a concise README.
+
+### Application and engine improvements since RC.2
+
 - Remember signing-option and Help disclosure choices across launches. Initially expand signing disclosures except App overrides, preserve presentation choices when starting a new session, and add Open all / Collapse all controls to Help.
 - Make the injected-library drop area clickable to open the file picker, enlarge its empty state, and strengthen its border and the IPA drop-area border.
 - Refine the desktop UI with native split-view navigation, a single scrolling Workspace, persistent export controls, calmer opaque form groups, and adaptive Library/profile layouts. Keep Liquid Glass on navigation and floating controls with opaque increased-contrast/Reduce Transparency fallbacks; respect Reduce Motion for disclosures.
