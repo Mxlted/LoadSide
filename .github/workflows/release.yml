@@ -16,7 +16,7 @@ concurrency:
   group: release-candidate-${{ github.ref }}
   cancel-in-progress: false
 jobs:
-  verify:
+  release-verify:
     # Public source runs on an ephemeral hosted runner. Production credentials
     # remain on the trusted release Mac and are never available to this workflow.
     runs-on: macos-15
@@ -55,8 +55,8 @@ jobs:
           echo 'Reference and commit validated. A maintainer must separately review the issue evidence before production signing.'
       - name: Test, build and verify candidate
         run: scripts/check.sh
-      - name: Package local evaluation archive
-        run: scripts/package.sh --local --archive
+      - name: Package local evaluation downloads
+        run: scripts/package.sh --local --archive --dmg
       - name: Record evaluation scope
         env:
           QUALIFICATION_REFERENCE: ${{ inputs.device_qualification }}
@@ -74,6 +74,8 @@ jobs:
           path: |
             dist/LoadSide-${{ steps.version.outputs.version }}-macOS-arm64-local.zip
             dist/LoadSide-${{ steps.version.outputs.version }}-macOS-arm64-local.zip.sha256
+            dist/LoadSide-${{ steps.version.outputs.version }}-macOS-arm64-local.dmg
+            dist/LoadSide-${{ steps.version.outputs.version }}-macOS-arm64-local.dmg.sha256
             dist/candidate-verification.txt
           if-no-files-found: error
           compression-level: 0

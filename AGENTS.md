@@ -36,7 +36,7 @@ Use Context7 MCP for current library/framework/SDK/API/CLI documentation: resolv
 
 ## Documentation and feature work
 
-Keep `README.md` a short end-user showcase. Put practical guides in `docs/` and link them through `docs/README.md`; keep the source map and contributor workflow in `CONTRIBUTING.md`. `docs/STATUS.md` records current evidence and blockers; archive superseded detail under `docs/history/` without changing historical claims. Run the offline documentation checker when moving links or assets.
+Keep `README.md` a short end-user showcase. Put practical guides in `docs/` and link them through `docs/README.md`; keep the source map and contributor workflow in `CONTRIBUTING.md`. `docs/STATUS.md` records current evidence and blockers; archive superseded detail under `docs/history/` without changing historical claims. Run the offline documentation checker when moving links or assets. Use plain punctuation rather than em dashes in public-facing copy; keep release notes concise and link to detailed evidence.
 
 New features must flow through the shared engine where applicable, present actual state and actionable errors, and cover policy boundaries, cancellation, and cleanup. Preserve persisted keys and diagnostic codes unless an intentional migration is documented. Avoid speculative abstractions and dependencies.
 
@@ -50,11 +50,11 @@ Proactively amend, squash, or consolidate commits when appropriate and safe, esp
 
 Before rewriting history, verify whether the affected commits are shared or published. Never rewrite shared or published history without explicit authorization, and do not force-push unless explicitly requested.
 
-Audit reachable history as well as the working tree for credentials and private data before a first push. Use `main` for reviewed releases and `codex/` branches for agent work.
+Audit reachable history as well as the working tree for credentials and private data before a first push. Use `main` for reviewed releases and `codex/` branches for agent work. Main is protected: open a pull request, pass the current `verify` check, resolve conversations, then squash merge. Zero approvals permit solo maintenance; never bypass protection or force-push main.
 
-Run `scripts/check.sh` before a release. Release packaging must fail closed for missing production signing/notarization credentials unless local mode was explicitly selected. A public release requires the qualification checklist in `docs/RELEASING.md`; outstanding device tests are release blockers, not assumed passes.
+Run `scripts/check.sh` before a release. Release packaging must fail closed for missing production signing/notarization credentials unless local mode was explicitly selected. Production releases require the qualification checklist in `docs/RELEASING.md`; outstanding device tests are production blockers, not assumed passes. A maintainer may explicitly authorize a public experimental prerelease built in local mode after full automated and artifact checks. Disclose ad-hoc signing, missing notarization, and unverified device/minimum-OS behavior; mark it as a prerelease, never latest or stable.
 
 Use the shared ARM64 build settings and verify exact architecture, deployment target, and SDK metadata for every packaged executable. Optional executable helpers must retain pinned ARM64 archive/executable integrity checks.
 
-Keep one current local application at `dist/LoadSide.app` and expose its bundled CLI through `dist/loadside`. Local ZIPs require `scripts/package.sh --local --archive`; production archives remain versioned and non-overwriting. Use `scripts/clean.sh` for generated build/cache cleanup, retaining `dist` by default. Never include imported signing material or user IPA exports in general project cleanup.
+Keep one current local application at `dist/LoadSide.app` and expose its bundled CLI through `dist/loadside`. Local ZIPs require `scripts/package.sh --local --archive`; add `--dmg` for a disk image. Production packaging creates both formats. Distributables require a build, remain versioned and non-overwriting, and must pass extraction/mount, signature, CLI, and checksum checks. Use `scripts/clean.sh` for generated build/cache cleanup, retaining `dist` by default. Never include imported signing material or user IPA exports in general project cleanup.
 

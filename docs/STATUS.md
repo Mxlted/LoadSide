@@ -1,20 +1,20 @@
 # Delivery status
 
-**0.1.0-rc.3 — local evaluation candidate. No production release is published.**
+**0.1.0-rc.3: experimental prerelease. Ad-hoc signed and not notarized.**
 
-LoadSide targets native Apple Silicon on macOS 14+. Automatic HTTPS requires macOS 15+. The public source repository is [Mxlted/LoadSide](https://github.com/Mxlted/LoadSide); production downloads remain gated on the evidence below.
+LoadSide targets native Apple Silicon on macOS 14+. Automatic HTTPS requires macOS 15+. The public source repository is [Mxlted/LoadSide](https://github.com/Mxlted/LoadSide); [prerelease downloads](https://github.com/Mxlted/LoadSide/releases/tag/v0.1.0-rc.3) are provided for evaluation. Production qualification remains gated on the evidence below.
 
 ## Current verification
 
 The release-preparation review adds archive path-namespace checks, type-safe entitlement reconciliation, bounded reads of untrusted files, session-password isolation when changing certificates, and coordinated listener shutdown before restarting local sharing. It preserves the shared engine, persisted data, CLI contracts, and existing signing policies.
 
-The repository now has a product-focused README with genuine empty-state application captures and separate end-user guides. Release tooling verifies archive round trips, source provenance, version consistency, and non-overwriting publication. The GitHub workflows use hosted ARM64 runners for verification; production signing stays on a trusted release Mac.
+The repository now has a product-focused README with genuine empty-state application captures and separate end-user guides. Release tooling verifies ZIP extraction and read-only DMG mounting, source provenance, version consistency, signatures, bundled CLI execution, and non-overwriting publication. Both formats include SHA-256 checksums. The GitHub workflows use hosted ARM64 runners for verification; production signing stays on a trusted release Mac.
 
-On 2026-10-13, native builds and `scripts/check.sh` passed with **196 tests** (161 core, 9 CLI, 26 app), zero failures or skips; formatting, documentation links, shell syntax, packaging guards, optimized ARM64 build, deployment/SDK metadata, CLI smoke/error paths, and tracked-file hygiene. The local host was macOS 27.0.1 with Swift 6.4. [Hosted CI](https://github.com/Mxlted/LoadSide/actions/runs/38422518763) also passed the full check, packaging, and artifact upload on macOS 15 with Xcode 26.3. Independent review found no remaining blocking code findings.
+On 2026-10-13, native builds and `scripts/check.sh` passed with **196 tests** (161 core, 9 CLI, 26 app), zero failures or skips; formatting, documentation links, shell syntax, packaging guards, optimized ARM64 build, deployment/SDK metadata, CLI smoke/error paths, and tracked-file hygiene. The local host was macOS 27.0.1 with Swift 6.4. [Initial RC.3 hosted CI](https://github.com/Mxlted/LoadSide/actions/runs/38422518763) also passed the full check, packaging, and artifact upload on macOS 15 with Xcode 26.3. Independent review found no remaining blocking code findings.
 
-The verified local archive, exact source commit, checksum, test scope, and remaining gates are recorded in [RC.3 qualification](QUALIFICATION-0.1.0-rc.3.md). Historical evidence remains in the [development verification log](history/2026-10.md) and [RC.1](QUALIFICATION-0.1.0-rc.1.md) / [RC.2](QUALIFICATION-0.1.0-rc.2.md) records. Those earlier records do not qualify RC.3.
+The [RC.3 qualification record](QUALIFICATION-0.1.0-rc.3.md) preserves the initial evaluation snapshot and remaining production gates. Published artifacts carry their exact source and toolchain in `Contents/Resources/BuildInfo.txt`, with a matching SHA-256 asset on the release page. [CI runs](https://github.com/Mxlted/LoadSide/actions/workflows/ci.yml) record checks for each commit. Historical evidence remains in the [development verification log](history/2026-10.md) and [RC.1](QUALIFICATION-0.1.0-rc.1.md) / [RC.2](QUALIFICATION-0.1.0-rc.2.md) records. Those earlier records do not qualify RC.3.
 
-## Blocking public binary release
+## Outstanding production qualification
 
 - Physical-device installation, app/extension runtime, injected-library behavior, and OTA transfer/install qualification for the supported policy matrix.
 - Real authorized identity signing and external `codesign` access on each qualified macOS version; synthetic imported-key tests do not establish certificate trust.
@@ -25,4 +25,4 @@ Use the [release checklist](RELEASING.md) to collect exact-commit evidence. Synt
 
 ## Evaluation artifacts
 
-Local packaging maintains `dist/LoadSide.app` and its bundled CLI link, `dist/loadside`. Explicit local archives are labeled `macOS-arm64-local` and are ad-hoc signed, not notarized. Source IPAs, signing material, and private qualification logs remain outside the public repository and distributables.
+Local packaging maintains `dist/LoadSide.app` and its bundled CLI link, `dist/loadside`. The prerelease provides a drag-to-Applications DMG and a ZIP with matching checksums. These artifacts are labeled `macOS-arm64-local` and are ad-hoc signed, not notarized. Source IPAs, signing material, and private qualification logs remain outside the public repository and distributables.

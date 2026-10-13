@@ -6,7 +6,7 @@ Start with the specific diagnostic in **Activity** or the CLI's stderr. Correct 
 
 - **Unsupported architecture:** use an Apple Silicon Mac and a native terminal/toolchain. Intel and Rosetta builds are intentionally rejected.
 - **SDK or deployment metadata mismatch:** select the intended full Xcode installation, rebuild with `scripts/check.sh`, then package normally. `--skip-build` cannot repair stale binaries. `scripts/clean.sh` removes build caches while keeping `dist` and user inputs.
-- **macOS cannot verify an evaluation app:** local builds are ad-hoc signed and unnotarized. Check the source and build locally or wait for a qualified release. Do not disable system-wide security controls.
+- **macOS cannot verify an evaluation app:** local builds are ad-hoc signed and unnotarized. Verify its origin and checksum, then follow the [first-launch instructions](INSTALLATION.md#first-launch) for a per-app exception if you choose to proceed. Do not disable system-wide security controls.
 - **Tests need a desktop session:** hosted SwiftUI tests require a macOS WindowServer session. The native password test can require an unlocked Keychain. See [Contributing](../CONTRIBUTING.md#tests-and-safety).
 
 ## Signing and injection
@@ -32,7 +32,7 @@ See [signing policies](GETTING_STARTED.md#understand-the-signing-policies), [com
 - **Local catalog unreachable:** keep LoadSide open, check the Mac's firewall/local-network permission, and use the same network for local HTTP. Restarting sharing creates a new private link; old links expire.
 - **Custom HTTPS fails:** the device must trust the HTTPS certificate, and the reverse proxy must forward the complete token-prefixed path unchanged to the chosen local port.
 - **No install button:** local-only sharing and legacy exports without a recorded bundle version are download-only. HTTPS must be ready for OTA links.
-- **iOS rejects installation or an extension fails:** signature verification is not device qualification. Check certificate trust, expiry, profile/device eligibility, and entitlement/identifier compatibility. Installation and runtime behavior remain release blockers until tested with authorized devices.
+- **iOS rejects installation or an extension fails:** signature verification is not device qualification. Check certificate trust, expiry, profile/device eligibility, and entitlement/identifier compatibility. Installation and runtime behavior remain production qualification blockers until tested with authorized devices.
 
 [Sharing guide](SHARING.md) explains the privacy and availability differences between modes.
 

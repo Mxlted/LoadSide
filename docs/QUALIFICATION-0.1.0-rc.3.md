@@ -1,4 +1,4 @@
-# Local artifact qualification: 0.1.0-rc.3
+# Initial evaluation snapshot: 0.1.0-rc.3
 
 Date: 2026-10-13. Classification: **local evaluation build**, not a production or device-qualified release.
 
@@ -7,11 +7,11 @@ Date: 2026-10-13. Classification: **local evaluation build**, not a production o
 - Source commit: `758af93c84a3798ed5768c2fbd37e1346c5a5e67`, clean checkout.
 - ZIP: `dist/LoadSide-0.1.0-rc.3-macOS-arm64-local.zip` (3,127,841 bytes).
 - SHA-256: `0a9a8ef067b27435f6b7ea667b977f82acae5b637d166aaa3be8be78ea4e5693`.
-- Current app: `dist/LoadSide.app`; bundled CLI link: `dist/loadside`.
+- App at capture: `dist/LoadSide.app`; bundled CLI link: `dist/loadside`.
 - App and CLI: ARM64 only, minimum macOS 14.0, linked SDK 27.0.
 - Local build: macOS 27.0.1, Apple Swift 6.4; ad-hoc signed, not notarized.
 
-This documentation-only record follows the packaged source commit. `Contents/Resources/BuildInfo.txt` records the exact source and toolchain; it does not promise byte-identical archives across toolchains or signing runs. Earlier local evaluation snapshots were preserved separately.
+This historical snapshot predates the DMG packaging update and public prerelease. It is not the checksum of the current release assets; use their matching `.sha256` downloads and embedded `BuildInfo.txt` for current provenance. This documentation-only record follows the packaged source commit. `Contents/Resources/BuildInfo.txt` records the exact source and toolchain; it does not promise byte-identical archives across toolchains or signing runs. Earlier local evaluation snapshots were preserved separately.
 
 ## Completed verification
 
@@ -34,4 +34,4 @@ The synthetic credential test proves import, certificate pairing, caller key use
 - Actual macOS 14 execution and full VoiceOver, keyboard, accessibility-settings, and end-to-end desktop qualification.
 - Developer ID signing, accepted notarization, stapling, Gatekeeper assessment, and independent download testing of the exact production archive.
 
-The GitHub release remains an unpublished draft. No final version tag or production download is approved. Complete the [release checklist](RELEASING.md) before publication; a successful automated or local check cannot replace these gates.
+The [public experimental prerelease](https://github.com/Mxlted/LoadSide/releases/tag/v0.1.0-rc.3) is explicitly authorized for evaluation with these limitations disclosed. Complete the [production release checklist](RELEASING.md#production-qualification-gate) before presenting any build as production-qualified; a successful automated or local check cannot replace these gates.

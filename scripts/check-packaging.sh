@@ -32,16 +32,36 @@ expect_rejection() {
 expect_rejection 'Set a Developer ID Application identity' env -u LOADSIDE_SIGNING_IDENTITY -u LOADSIDE_NOTARY_PROFILE "$PACKAGE_SCRIPT" --production
 expect_rejection 'Set the name of an existing notarytool keychain profile' env -u LOADSIDE_NOTARY_PROFILE LOADSIDE_SIGNING_IDENTITY=unused-test-identity "$PACKAGE_SCRIPT" --production
 expect_rejection 'Production mode does not accept local build options' "$PACKAGE_SCRIPT" --production --skip-build
+expect_rejection 'Production mode does not accept local build options' "$PACKAGE_SCRIPT" --production --dmg
 expect_rejection 'Usage:' "$PACKAGE_SCRIPT" --local --unknown
 expect_rejection '--skip-build cannot be combined with --archive' "$PACKAGE_SCRIPT" --local --skip-build --archive
 expect_rejection '--skip-build cannot be combined with --archive' "$PACKAGE_SCRIPT" --local --archive --skip-build
-[[ -z "$(ls -A "$QA_DIRECTORY/dist")" ]] || { echo 'FAIL: Rejected skipped-build archive created an output.' >&2; exit 1; }
+expect_rejection '--skip-build cannot be combined with --archive or --dmg' "$PACKAGE_SCRIPT" --local --skip-build --dmg
+expect_rejection '--skip-build cannot be combined with --archive or --dmg' "$PACKAGE_SCRIPT" --local --dmg --skip-build
+expect_rejection '--skip-build cannot be combined with --archive or --dmg' "$PACKAGE_SCRIPT" --local --archive --dmg --skip-build
+[[ -z "$(ls -A "$QA_DIRECTORY/dist")" ]] || { echo 'FAIL: Rejected skipped-build distributable created an output.' >&2; exit 1; }
 
 ARCHIVE="$QA_DIRECTORY/dist/LoadSide-$(cat VERSION)-macOS-arm64-local.zip"
 printf 'existing archive\n' > "$ARCHIVE"
 expect_rejection 'Refusing to overwrite' "$PACKAGE_SCRIPT" --local --archive
 [[ "$(cat "$ARCHIVE")" == 'existing archive' ]] || { echo 'FAIL: Existing archive changed.' >&2; exit 1; }
 rm "$ARCHIVE"
+
+DISK_IMAGE="$QA_DIRECTORY/dist/LoadSide-$(cat VERSION)-macOS-arm64-local.dmg"
+printf 'existing disk image\n' > "$DISK_IMAGE"
+expect_rejection 'Refusing to overwrite' "$PACKAGE_SCRIPT" --local --dmg
+expect_rejection 'Refusing to overwrite' "$PACKAGE_SCRIPT" --local --archive --dmg
+[[ "$(cat "$DISK_IMAGE")" == 'existing disk image' ]] || { echo 'FAIL: Existing disk image changed.' >&2; exit 1; }
+[[ ! -e "$ARCHIVE" ]] || { echo 'FAIL: Rejected combined packaging created a partial archive.' >&2; exit 1; }
+rm "$DISK_IMAGE"
+printf 'existing checksum\n' > "$DISK_IMAGE.sha256"
+expect_rejection 'Refusing to overwrite' "$PACKAGE_SCRIPT" --local --dmg
+[[ "$(cat "$DISK_IMAGE.sha256")" == 'existing checksum' ]] || { echo 'FAIL: Existing disk image checksum changed.' >&2; exit 1; }
+rm "$DISK_IMAGE.sha256"
+ln -s "$QA_DIRECTORY/nonexistent-disk-image" "$DISK_IMAGE"
+expect_rejection 'Refusing to overwrite' "$PACKAGE_SCRIPT" --local --dmg
+[[ -L "$DISK_IMAGE" && ! -e "$QA_DIRECTORY/nonexistent-disk-image" ]] || { echo 'FAIL: Packaging followed a disk image destination symlink.' >&2; exit 1; }
+rm "$DISK_IMAGE"
 
 ln -s "$QA_DIRECTORY/outside.app" "$QA_DIRECTORY/dist/LoadSide.app"
 expect_rejection 'Refusing a symlinked local app destination' "$PACKAGE_SCRIPT" --local --skip-build

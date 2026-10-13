@@ -28,13 +28,14 @@ jobs:
       - name: Test, build and smoke-test CLI
         run: scripts/check.sh
       - name: Package arm64 local build
-        run: scripts/package.sh --local --archive
+        run: scripts/package.sh --local --archive --dmg
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: LoadSide-local-arm64
           path: |
             dist/*.zip
+            dist/*.dmg
             dist/*.sha256
           if-no-files-found: error
           retention-days: 14
-          compression-level: 0 # The distributable is already a compressed ZIP.
+          compression-level: 0 # Both distributable formats are already compressed.
