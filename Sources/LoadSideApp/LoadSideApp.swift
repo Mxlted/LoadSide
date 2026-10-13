@@ -115,7 +115,7 @@ struct MainView: View {
                     case .signingProfiles: SigningProfilesView(model: model)
                     case .library: LocalLibraryView(model: model)
                     case .activity: ActivityView(model: model)
-                    case .guide: GuideView()
+                    case .guide: GuideView(disclosures: model.disclosurePreferences)
                     }
                 }
                 .frame(width: detailGeometry.size.width, height: detailGeometry.size.height, alignment: .topLeading)

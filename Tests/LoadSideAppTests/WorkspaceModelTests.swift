@@ -55,7 +55,7 @@ final class WorkspaceModelTests: XCTestCase {
         XCTAssertEqual(model.policy, .strict)
         XCTAssertEqual(model.extensionProfilePolicy, .reuseMain)
         XCTAssertFalse(model.removeExtensions)
-        XCTAssertFalse(model.showAdvanced)
+        XCTAssertTrue(model.showAdvanced)
         XCTAssertNil(model.activeJobID)
         XCTAssertFalse(model.canSign)
     }
@@ -245,6 +245,8 @@ final class WorkspaceModelTests: XCTestCase {
     ) async throws -> (WorkspaceModel, URL) {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("LoadSide-WorkspaceTests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+        let preferencesSuite = "LoadSide-WorkspacePreferences-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: preferencesSuite))
         let model = WorkspaceModel(
             historyStore: JobHistoryStore(url: root.appendingPathComponent("history.json")),
             savedProfileStore: SavedSigningProfileStore(
@@ -252,8 +254,10 @@ final class WorkspaceModelTests: XCTestCase {
             localLibrary: LocalLibraryModel(
                 store: LocalAppLibrary(directory: root.appendingPathComponent("library")),
                 installer: CloudflaredInstaller(directory: root.appendingPathComponent("tools"))),
+            disclosurePreferences: DisclosurePreferences(defaults: defaults),
             profileInspector: profileInspector)
         addTeardownBlock {
+            UserDefaults(suiteName: preferencesSuite)?.removePersistentDomain(forName: preferencesSuite)
             await model.waitForInitialLoad()
             try FileManager.default.removeItem(at: root)
         }

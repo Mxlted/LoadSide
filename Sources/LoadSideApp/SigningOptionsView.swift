@@ -1,14 +1,10 @@
 import LoadSideCore
 import SwiftUI
 
-/// Signing policy controls share the workspace's expansion state so switching
-/// workflows or resizing the workspace does not discard disclosure choices.
+/// Signing disclosures share persistent presentation preferences across workflows and launches.
 struct SigningOptionsView: View {
     @ObservedObject var model: WorkspaceModel
-    @Binding var showExtensionList: Bool
-    @Binding var showCompatibilityDetails: Bool
-    @Binding var showExtensionOptions: Bool
-    @Binding var showEntitlements: Bool
+    @ObservedObject var disclosures: DisclosurePreferences
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -62,7 +58,7 @@ struct SigningOptionsView: View {
                         }
                     }
                     Divider()
-                    DisclosureGroup(isExpanded: $showExtensionOptions) {
+                    DisclosureGroup(isExpanded: disclosures.binding(.extensions)) {
                         extensionPlan.padding(.top, 11)
                     } label: {
                         optionSummary(
@@ -73,21 +69,21 @@ struct SigningOptionsView: View {
                             warning: model.removeExtensions || model.extensionProfilePolicy == .reuseMain)
                     }
                     .font(.system(size: 13))
-                    if !showExtensionOptions, !model.blockingExtensionIdentifiers.isEmpty, !model.removeExtensions {
+                    if !disclosures.isExpanded(.extensions), !model.blockingExtensionIdentifiers.isEmpty, !model.removeExtensions {
                         InlineNotice(
                             message: "\(model.blockingExtensionIdentifiers.count) extension(s) need profiles. Open Extensions to review.")
                     }
-                    if !showExtensionOptions, !model.compatibilityExtensionIdentifiers.isEmpty, !model.removeExtensions {
+                    if !disclosures.isExpanded(.extensions), !model.compatibilityExtensionIdentifiers.isEmpty, !model.removeExtensions {
                         Text(
                             "\(model.compatibilityExtensionIdentifiers.count) extension(s) will share the main signing identity. Device behavior is unverified."
                         )
                         .font(.system(size: 12)).foregroundStyle(Palette.warning).fixedSize(horizontal: false, vertical: true)
                     }
-                    if !showExtensionOptions, !model.unmatchedNestedAppIdentifiers.isEmpty {
+                    if !disclosures.isExpanded(.extensions), !model.unmatchedNestedAppIdentifiers.isEmpty {
                         InlineNotice(message: "Nested apps need matching profiles. Open Extensions to review.")
                     }
                     Divider()
-                    DisclosureGroup(isExpanded: $showEntitlements) {
+                    DisclosureGroup(isExpanded: disclosures.binding(.entitlements)) {
                         VStack(alignment: .leading, spacing: 9) {
                             Picker("Entitlement policy", selection: $model.policy) {
                                 Text("Strict").tag(EntitlementPolicy.strict)
@@ -153,7 +149,7 @@ struct SigningOptionsView: View {
                 if model.extensionProfilePolicy == .reuseMain {
                     Text("Uses matching profiles when available, then reuses the main profile for eligible extensions.")
                         .font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                    DisclosureGroup("Experimental compatibility", isExpanded: $showCompatibilityDetails) {
+                    DisclosureGroup("Experimental compatibility", isExpanded: disclosures.binding(.compatibility)) {
                         VStack(alignment: .leading, spacing: 9) {
                             Text(
                                 "Extensions keep their bundle IDs but may share the main app’s signing identity and keychain access. File importing, app groups, and other features may fail. Device behavior is unverified."
@@ -183,7 +179,7 @@ struct SigningOptionsView: View {
                     Text("The export will lose extension features such as widgets, share actions, and notification services.")
                         .font(.system(size: 12)).foregroundStyle(Palette.warning).fixedSize(horizontal: false, vertical: true)
                 }
-                DisclosureGroup("View extension identifiers", isExpanded: $showExtensionList) {
+                DisclosureGroup("View extension identifiers", isExpanded: disclosures.binding(.extensionIdentifiers)) {
                     VStack(alignment: .leading, spacing: 8) {
                         ForEach(model.ipaInspection?.extensionBundleIdentifiers ?? [], id: \.self) { identifier in
                             let effective = model.identifierSuggestion?.identifier(forOriginalBundleIdentifier: identifier) ?? identifier

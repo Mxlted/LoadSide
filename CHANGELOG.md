@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Remember signing-option and Help disclosure choices across launches. Initially expand signing disclosures except App overrides, preserve presentation choices when starting a new session, and add Open all / Collapse all controls to Help.
 - Make the injected-library drop area clickable to open the file picker, enlarge its empty state, and strengthen its border and the IPA drop-area border.
 - Refine the desktop UI with native split-view navigation, a single scrolling Workspace, persistent export controls, calmer opaque form groups, and adaptive Library/profile layouts. Keep Liquid Glass on navigation and floating controls with opaque increased-contrast/Reduce Transparency fallbacks; respect Reduce Motion for disclosures.
 - Clarify export readiness, local verification, missing output files, terminal event logs, and empty-state next actions. Preserve both workflows, signing policies, CLI contracts, and stored data. Add isolated presentation regressions and optional fixture screenshots across window sizes and appearances.

@@ -17,6 +17,7 @@ final class WorkspaceModel: ObservableObject {
     @Published var section: AppSection = .workspace
     @Published var jobMode: JobMode = .sign
     let localLibrary: LocalLibraryModel
+    let disclosurePreferences: DisclosurePreferences
     @Published var ipa: URL? { didSet { refreshIPAInspection() } }
     @Published var certificate: URL? { didSet { if !applyingSavedSelection { invalidateSavedSelection() } } }
     @Published var password = ""
@@ -54,7 +55,9 @@ final class WorkspaceModel: ObservableObject {
     @Published var isCancelling = false
     @Published var notice: String?
     @Published var storageNotice: String?
-    @Published var showAdvanced = false
+    @Published var showAdvanced = false {
+        didSet { disclosurePreferences.setExpanded(showAdvanced, for: .appOverrides) }
+    }
     private var task: Task<Void, Never>?
     private var inspectionTokens: [URL: UUID] = [:]
     private var profileInspectionTasks: [URL: Task<Void, Never>] = [:]
@@ -71,11 +74,14 @@ final class WorkspaceModel: ObservableObject {
         historyStore: JobHistoryStore = JobHistoryStore(),
         savedProfileStore: SavedSigningProfileStore = SavedSigningProfileStore(),
         localLibrary: LocalLibraryModel = LocalLibraryModel(),
+        disclosurePreferences: DisclosurePreferences = DisclosurePreferences(),
         profileInspector: @escaping ProfileInspector = { try ProvisioningProfile.inspect($0) }
     ) {
         self.historyStore = historyStore
         self.savedProfileStore = savedProfileStore
         self.localLibrary = localLibrary
+        self.disclosurePreferences = disclosurePreferences
+        showAdvanced = disclosurePreferences.isExpanded(.appOverrides)
         self.profileInspector = profileInspector
         loadHistory()
         initialLoadTask = Task { [weak self] in await self?.loadSavedSigningProfiles(restoreSelection: true) }
@@ -662,7 +668,6 @@ final class WorkspaceModel: ObservableObject {
         policy = .strict
         removeExtensions = false
         extensionProfilePolicy = .reuseMain
-        showAdvanced = false
         activeJobID = nil
     }
 

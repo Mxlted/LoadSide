@@ -7,6 +7,30 @@ import XCTest
 
 final class WorkspaceAccessibilityTests: XCTestCase {
     @MainActor
+    func testHelpBatchControlsRememberTheirState() async throws {
+        let fixture = try await WorkspaceUIFixture()
+        defer { fixture.close() }
+        let preferences = fixture.model.disclosurePreferences
+        // Host the production controls directly; the in-process bridge omits
+        // some virtual controls inside the Help scroll view.
+        let host = AccessibilityHost(HelpDisclosureControls(disclosures: preferences).padding(24))
+        defer { host.close() }
+
+        try await host.press(identifier: "help.openAll")
+        try await host.wait("Open all Help topics, including unrendered topics") {
+            DisclosureID.allCases.filter(\.isHelp).allSatisfy { preferences.isExpanded($0) }
+        }
+        let restored = DisclosurePreferences(defaults: fixture.defaults)
+        XCTAssertTrue(restored.isExpanded(.chooseIPA))
+        XCTAssertTrue(restored.isExpanded(.installationRequirements))
+        try await host.press(identifier: "help.collapseAll")
+        try await host.wait("Collapse all Help topics") {
+            DisclosureID.allCases.filter(\.isHelp).allSatisfy { !preferences.isExpanded($0) }
+        }
+        XCTAssertTrue(preferences.isExpanded(.extensions))
+    }
+
+    @MainActor
     func testSidebarNavigationUpdatesSelectionAndVisibleSections() async throws {
         let fixture = try await WorkspaceUIFixture()
         defer { fixture.close() }
@@ -63,7 +87,6 @@ final class WorkspaceAccessibilityTests: XCTestCase {
         let host = AccessibilityHost(SigningOptionsHarness(model: fixture.model))
         defer { host.close() }
 
-        try await host.press(labelPrefix: "Extensions", role: .disclosureTriangle)
         try await assertPolicy(.reuseMain, model: fixture.model, host: host)
         try await host.press(identifier: "extension-policy.reuse-main")
         try await assertPolicy(.reuseMain, model: fixture.model, host: host)
@@ -79,6 +102,8 @@ final class WorkspaceAccessibilityTests: XCTestCase {
     func testDisclosureHeadersAndNestedControlsHaveIndependentActions() async throws {
         let fixture = try await WorkspaceUIFixture()
         defer { fixture.close() }
+        fixture.model.disclosurePreferences.setExpanded(false, for: .extensions)
+        fixture.model.disclosurePreferences.setExpanded(false, for: .compatibility)
         let host = AccessibilityHost(SigningOptionsHarness(model: fixture.model))
         defer { host.close() }
 
@@ -122,8 +147,6 @@ final class WorkspaceAccessibilityTests: XCTestCase {
         defer { workspace.close() }
         let options = AccessibilityHost(SigningOptionsHarness(model: fixture.model))
         defer { options.close() }
-        try await options.press(labelPrefix: "Extensions", role: .disclosureTriangle)
-        try await options.press(labelPrefix: "Entitlements", role: .disclosureTriangle)
         _ = try await options.element(identifier: "extension-policy.matching")
         fixture.model.isRunning = true
 
@@ -160,18 +183,11 @@ final class WorkspaceAccessibilityTests: XCTestCase {
 /// its state remains installed in a View, and no control implementation is copied.
 private struct SigningOptionsHarness: View {
     @ObservedObject var model: WorkspaceModel
-    @State private var extensionList = false
-    @State private var compatibility = false
-    @State private var extensions = false
-    @State private var entitlements = false
 
     var body: some View {
-        SigningOptionsView(
-            model: model, showExtensionList: $extensionList, showCompatibilityDetails: $compatibility,
-            showExtensionOptions: $extensions, showEntitlements: $entitlements
-        )
-        .disclosureGroupStyle(FullRowDisclosureStyle())
-        .padding(24)
+        SigningOptionsView(model: model, disclosures: model.disclosurePreferences)
+            .disclosureGroupStyle(FullRowDisclosureStyle())
+            .padding(24)
     }
 }
 
@@ -181,8 +197,11 @@ private struct SigningOptionsHarness: View {
 final class WorkspaceUIFixture {
     let directory: URL
     let model: WorkspaceModel
+    let preferencesSuite = "LoadSide-UIPreferences-\(UUID().uuidString)"
+    let defaults: UserDefaults
 
     init(unreadableProfile: Bool = false) async throws {
+        defaults = try XCTUnwrap(UserDefaults(suiteName: preferencesSuite))
         directory = FileManager.default.temporaryDirectory.appendingPathComponent("LoadSide-UI-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
         if unreadableProfile {
@@ -196,11 +215,13 @@ final class WorkspaceUIFixture {
                 directory: directory.appendingPathComponent("profiles"), passwords: MemoryPasswords()),
             localLibrary: LocalLibraryModel(
                 store: LocalAppLibrary(directory: directory.appendingPathComponent("library")),
-                installer: CloudflaredInstaller(directory: directory.appendingPathComponent("tools"))))
+                installer: CloudflaredInstaller(directory: directory.appendingPathComponent("tools"))),
+            disclosurePreferences: DisclosurePreferences(defaults: defaults))
         await model.waitForInitialLoad()
     }
 
     func close() {
+        defaults.removePersistentDomain(forName: preferencesSuite)
         XCTAssertFalse(model.localLibrary.needsShutdown)
         XCTAssertFalse(model.isRunning)
         XCTAssertNoThrow(try FileManager.default.removeItem(at: directory))

@@ -7,10 +7,6 @@ struct WorkspaceView: View {
     @State private var isDropTarget = false
     @State private var isInjectionDropTarget = false
     @State private var showSaveProfile = false
-    @State private var showExtensionList = false
-    @State private var showCompatibilityDetails = false
-    @State private var showExtensionOptions = false
-    @State private var showEntitlements = false
 
     var body: some View {
         GeometryReader { geometry in
@@ -261,10 +257,7 @@ struct WorkspaceView: View {
     }
 
     private var signingPlan: some View {
-        SigningOptionsView(
-            model: model, showExtensionList: $showExtensionList,
-            showCompatibilityDetails: $showCompatibilityDetails,
-            showExtensionOptions: $showExtensionOptions, showEntitlements: $showEntitlements)
+        SigningOptionsView(model: model, disclosures: model.disclosurePreferences)
     }
 
     private var injectionPlan: some View {
