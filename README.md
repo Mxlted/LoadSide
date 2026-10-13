@@ -22,7 +22,7 @@ A native macOS workspace for signing decrypted iOS apps with your own **P12 cert
 
 ## Requirements
 
-- macOS 14 or later, Apple silicon or Intel.
+- macOS 14 or later on an Apple Silicon Mac (ARM64). Intel Macs and Rosetta builds are unsupported.
 - A decrypted IPA that you are authorized to modify.
 - For signing: an Apple-issued code-signing identity with its private key in a `.p12` file and its password.
 - For signing: current provisioning profiles authorizing the selected certificate, signing identity and target device/distribution method. Keeping a different metadata bundle ID has the compatibility limits below; companion apps still require matching profiles.
@@ -40,9 +40,9 @@ scripts/package.sh --local
 open dist/LoadSide.app
 ```
 
-The scripts forward the selected Xcode SDK to the compiler and linker, and verify each binary’s SDK metadata so supported macOS versions enable current native styling. The minimum supported macOS remains 14.
+The scripts forward the selected Xcode SDK to the compiler and linker, and verify each executable is ARM64-only and check its SDK metadata so supported macOS versions enable current native styling. The minimum supported macOS remains 14.
 
-Local packaging builds universal binaries and maintains one ad-hoc signed app at `dist/LoadSide.app`, with `dist/loadside` linking to its bundled CLI. Repackaging replaces this local app only after the new app verifies. ZIPs and checksums are created only with `--archive`; those versioned archives are never overwritten. Run `scripts/clean.sh` to remove compiler caches and development scratch output while keeping the packaged app. Production packaging requires Developer ID signing and notarization; see [release instructions](docs/RELEASING.md).
+Local packaging builds native ARM64 binaries and maintains one ad-hoc signed app at `dist/LoadSide.app`, with `dist/loadside` linking to its bundled CLI. Repackaging replaces this local app only after the new app verifies. ZIPs and checksums are created only with `--archive`; those versioned archives are never overwritten. Run `scripts/clean.sh` to remove compiler caches and development scratch output while keeping the packaged app. Production packaging requires Developer ID signing and notarization; see [release instructions](docs/RELEASING.md).
 
 ## Use the app
 
@@ -62,6 +62,8 @@ dist/loadside inject --ipa /path/App.ipa --inject /path/Tweak.deb --output /path
 ```
 
 ### Share the local app library
+
+Automatic HTTPS requires macOS 15 or later because the pinned official helper declares that minimum. On macOS 14, use **Local downloads only** or **My HTTPS server**; signing and export still support macOS 14.
 
 Open **Local Library**, leave **Automatic HTTPS** selected, and choose **Start Sharing**. On first use, LoadSide downloads the pinned official Cloudflare helper (about 20 MB), verifies its archive and executable SHA-256, and stores it privately in `~/Library/Application Support/LoadSide/Tools`. It then creates a temporary HTTPS address without an account, domain, router changes, or certificate setup. Scan the QR code or open the link in Safari on your iPhone or iPad, then tap **Install on device**. Keep LoadSide open and the Mac online.
 

@@ -5,6 +5,53 @@ import XCTest
 @testable import LoadSideCore
 
 final class CloudflaredInstallerTests: XCTestCase {
+    func testPinnedReleaseUsesOnlyOfficialARM64Archive() {
+        XCTAssertEqual(
+            CloudflaredInstaller.Release.pinned.archiveURL.absoluteString,
+            "https://github.com/cloudflare/cloudflared/releases/download/\(CloudflaredInstaller.version)/cloudflared-darwin-arm64.tgz")
+        XCTAssertTrue(CloudflaredInstaller.allowedDownloadURL(CloudflaredInstaller.Release.pinned.archiveURL))
+        XCTAssertEqual(CloudflaredInstaller.Release.pinned.minimumMacOSMajor, 15)
+    }
+
+    func testUnsupportedHelperOSFailsBeforeStorageOrDownload() async throws {
+        let root = try BinaryFixtures.temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let directory = root.appendingPathComponent("tools")
+        let calls = DownloadCounter()
+        let installer = CloudflaredInstaller(directory: directory, release: .pinned, macOSMajorVersion: 14) { _, _, _ in
+            await calls.record()
+        }
+        do {
+            _ = try await installer.executable()
+            XCTFail("Prepared an incompatible helper")
+        } catch let error as LoadSideError {
+            XCTAssertEqual(error.code, "https.helper")
+            XCTAssertTrue(error.message.contains("macOS 15"))
+            XCTAssertTrue(error.message.contains("Local downloads only"))
+            XCTAssertTrue(error.message.contains("My HTTPS server"))
+            XCTAssertTrue(error.recovery.contains("Local downloads only"))
+            XCTAssertTrue(error.recovery.contains("My HTTPS server"))
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: directory.path))
+        let count = await calls.count
+        XCTAssertEqual(count, 0)
+    }
+
+    func testCompatibleHelperInstallsAtItsMinimumOSVersion() async throws {
+        for minimum in [14, 15] {
+            let root = try BinaryFixtures.temporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: root) }
+            let fixture = helperFixture(minimumMacOSMajor: minimum)
+            let directory = root.appendingPathComponent("tools")
+            let installer = CloudflaredInstaller(directory: directory, release: fixture.release, macOSMajorVersion: minimum) {
+                _, target, _ in
+                try fixture.archive.write(to: target)
+            }
+            let executable = try await installer.executable()
+            XCTAssertEqual(try Data(contentsOf: executable), fixture.binary)
+        }
+    }
+
     func testInstallsPinnedExecutablePrivatelyAndReusesOnlyVerifiedCopy() async throws {
         let root = try BinaryFixtures.temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -51,6 +98,56 @@ final class CloudflaredInstallerTests: XCTestCase {
             } catch {}
             XCTAssertTrue(try FileManager.default.contentsOfDirectory(atPath: directory.path).isEmpty)
         }
+    }
+
+    func testVerifiesEveryChunkAndPartialFinalChunkOfCachedHelper() async throws {
+        let root = try BinaryFixtures.temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let binary = Data((0..<(2 * 64 * 1_024 + 17)).map { UInt8(truncatingIfNeeded: $0) })
+        let fixture = helperFixture(binary: binary)
+        let directory = root.appendingPathComponent("tools")
+        let installer = fixtureInstaller(fixture, at: directory)
+        let executable = try await installer.executable()
+        XCTAssertEqual(try Data(contentsOf: executable), binary)
+        let reused = try await installer.executable()
+        XCTAssertEqual(reused, executable)
+
+        for index in [0, 64 * 1_024, binary.count - 1] {
+            var modified = binary
+            modified[index] ^= 0xff
+            try modified.write(to: executable)
+            do {
+                _ = try await installer.executable()
+                XCTFail("Accepted a changed byte at offset \(index)")
+            } catch let error as LoadSideError {
+                XCTAssertEqual(error.code, "https.helper")
+                XCTAssertTrue(error.message.contains("integrity check"))
+            }
+        }
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: directory.path), [executable.lastPathComponent])
+    }
+
+    func testAlreadyCancelledInstallDoesNotCreateStorageOrDownload() async throws {
+        let root = try BinaryFixtures.temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fixture = helperFixture()
+        let directory = root.appendingPathComponent("tools")
+        let calls = DownloadCounter()
+        let installer = CloudflaredInstaller(directory: directory, release: fixture.release) { _, target, _ in
+            await calls.record()
+            try fixture.archive.write(to: target)
+        }
+        let task = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return try await installer.executable()
+        }
+        do {
+            _ = try await task.value
+            XCTFail("Prepared a helper for an already cancelled operation")
+        } catch is CancellationError {} catch { XCTFail("Unexpected cancellation error: \(error)") }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: directory.path))
+        let count = await calls.count
+        XCTAssertEqual(count, 0)
     }
 
     func testWrongExecutableChecksumIsRejectedEvenWithValidArchiveChecksum() async throws {
@@ -188,12 +285,15 @@ private struct HelperFixture: Sendable {
     let release: CloudflaredInstaller.Release
 }
 
-private func helperFixture(entries: [ArchiveFixtures.Entry]? = nil, binaryDigest: String? = nil) -> HelperFixture {
-    let binary = Data("fixture helper".utf8)
+private func helperFixture(
+    binary: Data = Data("fixture helper".utf8), entries: [ArchiveFixtures.Entry]? = nil, binaryDigest: String? = nil,
+    minimumMacOSMajor: Int = 14
+) -> HelperFixture {
     let archive = ArchiveFixtures.tar(entries ?? [.init(path: "cloudflared", data: binary)])
     let release = CloudflaredInstaller.Release(
-        architecture: "arm64", archiveSHA256: helperDigest(archive),
-        executableSHA256: binaryDigest ?? helperDigest(binary), archiveBytes: Int64(archive.count), executableBytes: Int64(binary.count))
+        archiveSHA256: helperDigest(archive),
+        executableSHA256: binaryDigest ?? helperDigest(binary), archiveBytes: Int64(archive.count), executableBytes: Int64(binary.count),
+        minimumMacOSMajor: minimumMacOSMajor)
     return HelperFixture(archive: archive, binary: binary, release: release)
 }
 

@@ -5,9 +5,21 @@ import XCTest
 
 final class MachOUniversalTests: XCTestCase {
     func testInjectionUpdatesEveryUniversalSliceWithoutMovingCode() throws {
+        try verifyUniversalInjection(cpuTypes: [0x0100000c, 0x0100000c], subtypes: [0, 2], architectures: ["arm64", "arm64e"])
+    }
+
+    func testIntelArchiveSliceRemainsSupportedOnARM64Host() throws {
+        try verifyUniversalInjection(cpuTypes: [0x0100000c, 0x01000007], subtypes: [0, 3], architectures: ["arm64", "x86_64"])
+    }
+
+    private func verifyUniversalInjection(cpuTypes: [UInt32], subtypes: [UInt32], architectures: [String]) throws {
         let root = try BinaryFixtures.temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
-        let slices = [BinaryFixtures.macho(subtype: 0), BinaryFixtures.macho(subtype: 2)]
+        let slices = zip(cpuTypes, subtypes).map { cpuType, subtype in
+            var bytes = Array(BinaryFixtures.macho(subtype: subtype))
+            BinaryFixtures.put32(cpuType, at: 4, in: &bytes)
+            return Data(bytes)
+        }
         let offsets = [4096, 12288]
         var bytes = [UInt8](repeating: 0, count: offsets[1] + slices[1].count)
         func bigEndian(_ value: UInt32, at offset: Int) {
@@ -17,8 +29,8 @@ final class MachOUniversalTests: XCTestCase {
         bigEndian(2, at: 4)
         for index in 0..<2 {
             let entry = 8 + index * 20
-            bigEndian(0x0100000c, at: entry)
-            bigEndian(index == 0 ? 0 : 2, at: entry + 4)
+            bigEndian(cpuTypes[index], at: entry)
+            bigEndian(subtypes[index], at: entry + 4)
             bigEndian(UInt32(offsets[index]), at: entry + 8)
             bigEndian(UInt32(slices[index].count), at: entry + 12)
             bigEndian(12, at: entry + 16)
@@ -32,6 +44,7 @@ final class MachOUniversalTests: XCTestCase {
         let modified = try Data(contentsOf: binary)
         let parsed = try MachO.inspect(binary)
         XCTAssertEqual(parsed.slices.count, 2)
+        XCTAssertEqual(parsed.architectures, architectures)
         XCTAssertTrue(parsed.slices.allSatisfy { $0.dependencies == [loadPath] })
         XCTAssertEqual(modified.count, original.count)
         XCTAssertEqual(modified.prefix(4096), original.prefix(4096))

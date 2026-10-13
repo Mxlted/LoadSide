@@ -1,6 +1,10 @@
 // swift-tools-version: 6.0
 import PackageDescription
 
+#if !os(macOS) || !arch(arm64)
+    #error("LoadSide requires a native Apple Silicon Mac. Intel Macs and Rosetta build sessions are unsupported.")
+#endif
+
 let package = Package(
     name: "LoadSide",
     platforms: [.macOS(.v14)],

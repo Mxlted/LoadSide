@@ -10,7 +10,7 @@ The original header notices and COPYING file are bundled in packaged builds.
 
 ## Optional Cloudflare HTTPS helper
 
-Choosing Automatic HTTPS downloads the official [cloudflared 2026.10.0 macOS release](https://github.com/cloudflare/cloudflared/releases/tag/2026.10.0) from Cloudflare’s GitHub release assets. No cloudflared binary or source is bundled in LoadSide. The archive and extracted executable hashes for ARM64 and x86_64 are pinned in `CloudflaredInstaller.swift`; the helper is verified again before reuse.
+Choosing Automatic HTTPS downloads the official [cloudflared 2026.10.0 macOS release](https://github.com/cloudflare/cloudflared/releases/tag/2026.10.0) from Cloudflare’s GitHub release assets. No cloudflared binary or source is bundled in LoadSide. The archive and extracted executable hashes for ARM64 are pinned in `CloudflaredInstaller.swift`; the helper is verified again before reuse. This official executable declares minimum macOS 15.0 (build SDK 15.2); automatic setup requires macOS 15+, while LoadSide itself and its local/custom HTTPS sharing retain macOS 14 support.
 
 cloudflared is licensed under [Apache License 2.0](https://github.com/cloudflare/cloudflared/blob/2026.10.0/LICENSE). Its upstream [source and dependency notices](https://github.com/cloudflare/cloudflared/tree/2026.10.0) remain available from Cloudflare. The managed helper uses the [Cloudflare Quick Tunnel service](https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/), which forwards the explicitly shared library through Cloudflare’s network.
 

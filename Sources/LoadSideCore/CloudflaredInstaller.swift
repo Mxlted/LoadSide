@@ -7,43 +7,31 @@ import Foundation
 public actor CloudflaredInstaller {
     public static let version = "2026.10.0"
     public nonisolated let directoryURL: URL
-    private let release: Release?
+    private let release: Release
+    private let macOSMajorVersion: Int
     private let downloader: @Sendable (URL, URL, Int64) async throws -> Void
     private var isInstalling = false
     private let fm = FileManager.default
 
     struct Release: Sendable {
-        let architecture: String
         let archiveSHA256: String
         let executableSHA256: String
         let archiveBytes: Int64
         let executableBytes: Int64
+        let minimumMacOSMajor: Int
         var archiveURL: URL {
             URL(
                 string:
-                    "https://github.com/cloudflare/cloudflared/releases/download/\(CloudflaredInstaller.version)/cloudflared-darwin-\(architecture).tgz"
+                    "https://github.com/cloudflare/cloudflared/releases/download/\(CloudflaredInstaller.version)/cloudflared-darwin-arm64.tgz"
             )!
         }
 
-        static let arm64 = Release(
-            architecture: "arm64",
+        static let pinned = Release(
             archiveSHA256: "a2f79ff7b9420aa537d74af239f376da170bbabeb529aec416002adac6a72e70",
             executableSHA256: "72edfd3eea463aef4d5cb89e2e209cecb048cc756c2b01915de2e0ad7cb39830",
-            archiveBytes: 19_809_074, executableBytes: 39_364_384)
-        static let amd64 = Release(
-            architecture: "amd64",
-            archiveSHA256: "903845b81828c8cb3c5d13d816a2de71c06a3da5785469df8eb0e1b736d92f9f",
-            executableSHA256: "0560c9ab7281ac3f746055323623ed23bc0405b6dab9400474020cba33a978da",
-            archiveBytes: 21_741_581, executableBytes: 42_328_240)
-        static var current: Release? {
-            #if arch(arm64)
-                return .arm64
-            #elseif arch(x86_64)
-                return .amd64
-            #else
-                return nil
-            #endif
-        }
+            archiveBytes: 19_809_074, executableBytes: 39_364_384,
+            // The official ARM64 executable declares LC_BUILD_VERSION minos 15.0.
+            minimumMacOSMajor: 15)
     }
 
     public init(directory: URL? = nil) {
@@ -51,25 +39,35 @@ public actor CloudflaredInstaller {
             directory
             ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("LoadSide/Tools", isDirectory: true)
-        release = Release.current
+        release = .pinned
+        macOSMajorVersion = ProcessInfo.processInfo.operatingSystemVersion.majorVersion
         downloader = Self.download
     }
 
     /// Fixture-only dependency injection keeps verification and cleanup tests offline.
-    init(directory: URL, release: Release, downloader: @escaping @Sendable (URL, URL, Int64) async throws -> Void) {
+    init(
+        directory: URL, release: Release,
+        macOSMajorVersion: Int = ProcessInfo.processInfo.operatingSystemVersion.majorVersion,
+        downloader: @escaping @Sendable (URL, URL, Int64) async throws -> Void
+    ) {
         directoryURL = directory
         self.release = release
+        self.macOSMajorVersion = macOSMajorVersion
         self.downloader = downloader
     }
 
     public func executable() async throws -> URL {
         try Task.checkCancellation()
-        guard let release else { throw Self.failure("This Mac's processor is not supported by the HTTPS helper.") }
+        guard macOSMajorVersion >= release.minimumMacOSMajor else {
+            throw Self.failure(
+                "Automatic HTTPS requires macOS \(release.minimumMacOSMajor) or later for the pinned helper. Use Local downloads only or My HTTPS server on this Mac.",
+                recovery: "Use Local downloads only or My HTTPS server, or update macOS.")
+        }
         guard !isInstalling else { throw Self.failure("The HTTPS helper is already being prepared.") }
         isInstalling = true
         defer { isInstalling = false }
         try prepareDirectory()
-        let installed = directoryURL.appendingPathComponent("cloudflared-\(Self.version)-\(release.architecture)")
+        let installed = directoryURL.appendingPathComponent("cloudflared-\(Self.version)-arm64")
         if try exists(installed) {
             try verify(installed, bytes: release.executableBytes, digest: release.executableSHA256, executable: true)
             return installed
@@ -143,8 +141,7 @@ public actor CloudflaredInstaller {
     private func verify(_ url: URL, bytes: Int64, digest: String, executable: Bool = false) throws {
         let descriptor = Darwin.open(url.path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
         guard descriptor >= 0 else { throw Self.failure("The saved HTTPS helper is missing or unsafe.") }
-        let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
-        defer { try? handle.close() }
+        defer { Darwin.close(descriptor) }
         var initial = stat()
         guard fstat(descriptor, &initial) == 0, initial.st_mode & S_IFMT == S_IFREG,
             initial.st_nlink == 1, initial.st_uid == getuid(), initial.st_size == bytes
@@ -153,11 +150,20 @@ public actor CloudflaredInstaller {
         }
         var hash = SHA256()
         var count: Int64 = 0
-        while let data = try handle.read(upToCount: 64 * 1_024), !data.isEmpty {
-            try Task.checkCancellation()
-            count += Int64(data.count)
-            guard count <= bytes else { throw Self.failure("The HTTPS helper changed during verification.") }
-            hash.update(data: data)
+        // Reuse one bounded buffer for both archive and cached-executable verification;
+        // hashing a large helper should not allocate a new Foundation Data for every read.
+        var storage = [UInt8](repeating: 0, count: 64 * 1_024)
+        try storage.withUnsafeMutableBytes { buffer in
+            while true {
+                try Task.checkCancellation()
+                let length = Darwin.read(descriptor, buffer.baseAddress, buffer.count)
+                if length < 0, errno == EINTR { continue }
+                guard length >= 0 else { throw Self.failure("The HTTPS helper could not be read for verification.") }
+                if length == 0 { break }
+                count += Int64(length)
+                guard count <= bytes else { throw Self.failure("The HTTPS helper changed during verification.") }
+                hash.update(bufferPointer: UnsafeRawBufferPointer(rebasing: buffer[..<length]))
+            }
         }
         var final = stat()
         guard count == bytes, hash.finalize().map({ String(format: "%02x", $0) }).joined() == digest,

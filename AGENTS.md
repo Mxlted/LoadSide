@@ -26,7 +26,7 @@ LoadSide is a native macOS application and CLI for locally signing decrypted iOS
 
 ## Development and verification
 
-Target macOS 14+, Swift 6, and Foundation/Security/libarchive. Use `xcodebuildmcp` for interactive build and test orchestration when available; repository CI/release scripts use the standard Swift toolchain directly. Check workflow `--help` before using the CLI. Run relevant unit tests and a full build after interface changes. Test hostile archives, malformed binaries, policy boundaries, cancellation, and failure cleanup, not just happy paths. Keep `docs/STATUS.md`, `CHANGELOG.md`, and support limitations accurate.
+Target Apple Silicon (ARM64) only, macOS 14+, Swift 6, and Foundation/Security/libarchive. Build and run the toolchain natively; reject Intel and Rosetta hosts early. Keep host architecture restrictions separate from thin/universal Mach-O handling inside user archives. Preserve macOS availability checks and the file-Keychain compatibility boundary. Use `xcodebuildmcp` for interactive build and test orchestration when available; repository CI/release scripts use the standard Swift toolchain directly. Check workflow `--help` before using the CLI. Run relevant unit tests and a full build after interface changes. Test hostile archives, malformed binaries, policy boundaries, cancellation, and failure cleanup, not just happy paths. Keep `docs/STATUS.md`, `CHANGELOG.md`, and support limitations accurate.
 
 Use `scripts/format.sh` and `.swift-format` for owned Swift sources; `scripts/check.sh` enforces formatting. Preserve vendored CArchive header formatting. Keep shared test fixtures in `Tests/LoadSideCoreTests/Support`, and retain persisted Codable keys, public APIs, and diagnostic codes during refactors. See `CONTRIBUTING.md` for the source map and validation workflow.
 
@@ -41,6 +41,8 @@ Proactively amend, squash, or consolidate commits when appropriate and safe, esp
 Before rewriting history, verify whether the affected commits are shared or published. Never rewrite shared or published history without explicit authorization, and do not force-push unless explicitly requested.
 
 Run `scripts/check.sh` before a release. Release packaging must fail closed for missing production signing/notarization credentials unless local mode was explicitly selected. A public release requires the qualification checklist in `docs/RELEASING.md`; outstanding device tests are release blockers, not assumed passes.
+
+Use the shared ARM64 build settings and verify exact architecture, deployment target, and SDK metadata for every packaged executable. Optional executable helpers must retain pinned ARM64 archive/executable integrity checks.
 
 Keep one current local application at `dist/LoadSide.app` and expose its bundled CLI through `dist/loadside`. Local ZIPs require `scripts/package.sh --local --archive`; production archives remain versioned and non-overwriting. Use `scripts/clean.sh` for generated build/cache cleanup, retaining `dist` by default. Never include imported signing material or user IPA exports in general project cleanup.
 

@@ -11,7 +11,8 @@ Local mode replaces dist/LoadSide.app and its dist/loadside CLI link after
 verification. Add --archive to also create a versioned ZIP and checksum.
 Production mode requires Developer ID signing and notarization credentials;
 it always rebuilds and creates a versioned ZIP and checksum without overwriting.
-Both modes verify the minimum macOS and current linked SDK for every binary slice.
+Both modes require native Apple Silicon and verify arm64-only binaries, minimum
+macOS and the current linked SDK for the app and every bundled executable.
 --skip-build refuses stale SDK metadata; rebuild normally after changing Xcode.
 EOF
 }
@@ -31,6 +32,8 @@ while [[ $# -gt 0 ]]; do
   esac
   shift
 done
+source scripts/build-support.sh
+loadside_require_supported_host
 if [[ "$MODE" == "--production" ]]; then
   CREATE_ARCHIVE=true
   : "${LOADSIDE_SIGNING_IDENTITY:?Set a Developer ID Application identity name or hash}"
@@ -41,7 +44,7 @@ VERSION="$(cat VERSION)"
 [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo 'VERSION must contain a numeric release version with an optional prerelease suffix.' >&2; exit 1; }
 SUFFIX=''
 if [[ "$MODE" == "--local" ]]; then SUFFIX='-local'; fi
-ARTIFACT="$PWD/dist/LoadSide-$VERSION-macOS-universal$SUFFIX.zip"
+ARTIFACT="$PWD/dist/LoadSide-$VERSION-macOS-arm64$SUFFIX.zip"
 CHECKSUM="$ARTIFACT.sha256"
 LOCAL_APP="$PWD/dist/LoadSide.app"
 LOCAL_CLI="$PWD/dist/loadside"
@@ -61,7 +64,6 @@ if [[ "$MODE" == "--local" ]]; then
     [[ -L "$LOCAL_CLI" && "$(readlink "$LOCAL_CLI")" == 'LoadSide.app/Contents/Helpers/loadside' ]] || { echo 'Refusing to replace an unmanaged dist/loadside file.' >&2; exit 1; }
   fi
 fi
-source scripts/build-support.sh
 loadside_configure_build
 mkdir -p dist
 STAGING="$(mktemp -d "$PWD/dist/.package.XXXXXX")"
@@ -80,20 +82,16 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 if [[ "$SKIP_BUILD" == false ]]; then
-  swift build -c release --arch arm64 --arch x86_64 "${LOADSIDE_SWIFT_BUILD_FLAGS[@]}"
+  swift build -c release "${LOADSIDE_SWIFT_BUILD_FLAGS[@]}"
 fi
-BIN_DIR="$(swift build -c release --arch arm64 --arch x86_64 "${LOADSIDE_SWIFT_BUILD_FLAGS[@]}" --show-bin-path)"
+BIN_DIR="$(swift build -c release "${LOADSIDE_SWIFT_BUILD_FLAGS[@]}" --show-bin-path)"
 for executable in LoadSideApp loadside; do
   [[ -x "$BIN_DIR/$executable" ]] || { echo "Missing release executable: $executable" >&2; exit 1; }
-  ARCHS="$(/usr/bin/lipo -archs "$BIN_DIR/$executable")"
-  [[ "$ARCHS" == *arm64* && "$ARCHS" == *x86_64* ]] || { echo 'Universal arm64 + x86_64 binaries are required.' >&2; exit 1; }
 done
 APP="$STAGING/LoadSide.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Helpers" "$APP/Contents/Resources"
 cp "$BIN_DIR/LoadSideApp" "$APP/Contents/MacOS/LoadSide"
 cp "$BIN_DIR/loadside" "$APP/Contents/Helpers/loadside"
-loadside_verify_binary_sdk "$APP/Contents/MacOS/LoadSide"
-loadside_verify_binary_sdk "$APP/Contents/Helpers/loadside"
 cp Assets/Info.plist "$APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${VERSION%%-*}" "$APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :LoadSideVersion $VERSION" "$APP/Contents/Info.plist"
@@ -107,6 +105,7 @@ mkdir -p "$APP/Contents/Resources/Documentation"
 cp docs/COMPATIBILITY.md docs/APPROVAL_ENTITLEMENTS.md "$APP/Contents/Resources/Documentation/"
 mkdir -p "$APP/Contents/Resources/ThirdParty"
 cp THIRD_PARTY_NOTICES.md Sources/CArchive/LICENSE Sources/CArchive/archive.h Sources/CArchive/archive_entry.h "$APP/Contents/Resources/ThirdParty/"
+loadside_verify_bundle_binaries "$APP"
 if [[ "$MODE" == "--production" ]]; then
   /usr/bin/codesign --force --options runtime --timestamp --sign "$LOADSIDE_SIGNING_IDENTITY" "$APP/Contents/Helpers/loadside"
   /usr/bin/codesign --force --options runtime --timestamp --sign "$LOADSIDE_SIGNING_IDENTITY" "$APP"

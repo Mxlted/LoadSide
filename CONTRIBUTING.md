@@ -1,6 +1,6 @@
 # Contributing
 
-Read [engineering invariants](AGENTS.md) and [architecture](docs/ARCHITECTURE.md) before changing the signing pipeline. macOS 14+ and Xcode with Swift 6+ are required. Open `Package.swift` in Xcode; there is no generated Xcode project to maintain and no third-party Swift package to install.
+Read [engineering invariants](AGENTS.md) and [architecture](docs/ARCHITECTURE.md) before changing the signing pipeline. An Apple Silicon Mac running macOS 14+ and Xcode with Swift 6+ are required. Run the toolchain natively; Intel Macs and Rosetta sessions are unsupported. Open `Package.swift` in Xcode; there is no generated Xcode project to maintain and no third-party Swift package to install.
 
 ## Development loop
 
@@ -19,7 +19,9 @@ Use `swift test --filter <TestClass>` for the area being changed, then run `scri
 
 Interactive agent workflows use `xcodebuildmcp swift-package build` and `test` when available; inspect their `--help` first and pass this checkout as `--package-path`. Repository scripts use Swift directly so CI does not need XcodeBuildMCP. Do not run competing builds against the same build directory.
 
-The release scripts deliberately forward the selected macOS SDK to both compilation and linking. Use those scripts to create distributable bundles; a plain development build does not replace their SDK and signature checks. `scripts/package.sh --local` updates `dist/LoadSide.app` and `dist/loadside` after verification. `scripts/clean.sh --dry-run` previews generated-file cleanup and preserves `dist` by default. Never put user archives or signing material in build directories.
+Build, verification, and packaging scripts share one ARM64 configuration (including warning policy, so packaging can reuse the verified release build) and reject unsupported hosts before compiling. The package manifest also rejects unsupported hosts, and the core target rejects non-ARM64 compilation. This host constraint must never be used to restrict the architectures parsed inside user archives.
+
+The release scripts deliberately forward the selected macOS SDK to both compilation and linking. Use those scripts to create distributable bundles; a plain development build does not replace their exact-architecture, macOS 14 deployment-target, SDK, and signature checks. `scripts/package.sh --local` updates `dist/LoadSide.app` and `dist/loadside` after verification. `scripts/clean.sh --dry-run` previews generated-file cleanup and preserves `dist` by default. Never put user archives or signing material in build directories.
 
 ## Finding the right code
 

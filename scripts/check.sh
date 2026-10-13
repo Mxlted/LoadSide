@@ -11,14 +11,14 @@ if [[ $# -gt 1 || ( $# -eq 1 && "$1" != "--skip-build" ) ]]; then
   echo 'Usage: scripts/check.sh [--skip-build]' >&2
   exit 2
 fi
+source scripts/build-support.sh
+loadside_configure_build
 for script in scripts/*.sh; do bash -n "$script"; done
 scripts/format.sh --check
 scripts/check-packaging.sh
-source scripts/build-support.sh
-loadside_configure_build
 if [[ $# -eq 0 ]]; then
-  swift test "${LOADSIDE_SWIFT_BUILD_FLAGS[@]}" -Xswiftc -warnings-as-errors -Xcc -Werror=deprecated-declarations
-  swift build -c release "${LOADSIDE_SWIFT_BUILD_FLAGS[@]}" -Xswiftc -warnings-as-errors -Xcc -Werror=deprecated-declarations
+  swift test "${LOADSIDE_SWIFT_BUILD_FLAGS[@]}"
+  swift build -c release "${LOADSIDE_SWIFT_BUILD_FLAGS[@]}"
 fi
 BIN_DIR="$(swift build -c release "${LOADSIDE_SWIFT_BUILD_FLAGS[@]}" --show-bin-path)"
 loadside_verify_binary_sdk "$BIN_DIR/LoadSideApp"

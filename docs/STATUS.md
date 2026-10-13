@@ -4,6 +4,13 @@ Target: **0.1.0-rc.2**, local evaluation release candidate. This file records ev
 
 The [RC.2 artifact qualification record](QUALIFICATION-0.1.0-rc.2.md) identifies the historical RC.2 app, source commit, checksums and remaining release gates. Qualification records below describe the builds tested at that time; their old artifact paths are historical and are superseded by the canonical local package.
 
+## Apple Silicon migration — 2026-10-13
+
+- LoadSide now requires an Apple Silicon Mac. Shared scripts build only ARM64, reject Intel/Rosetta hosts, and verify exact architecture plus macOS 14/current SDK metadata. The package manifest and core target also reject unsupported host/target compilation. CI has one Apple Silicon job, release runners require ARM64, and new archives use `macOS-arm64` names.
+- The optional cloudflared helper retains its pinned ARM64 archive/executable hashes and existing cache filename. Intel pins and host selection branches are removed. Descriptor-based hashing now reuses a 64 KiB buffer, with focused multi-chunk integrity and cancellation regressions.
+- Static inspection of the existing hash-matching cloudflared 2026.10.0 executable confirmed ARM64, SDK 15.2, and minimum macOS 15.0. Recent official releases share this upstream requirement. Automatic HTTPS now explains this on macOS 14 before setup; local/custom HTTPS remain available. No unsupported downgrade or load-command patch was used. This helper is downloaded on demand and is not bundled in the app.
+- macOS 14, later-OS UI availability checks, CLI contracts, persisted data, signing policies, private file-keychain lifecycle/ACLs, and source-input guarantees remain unchanged. Mixed ARM64/Intel user-archive parsing and per-slice editing have explicit regression coverage. Historical universal build records below describe earlier builds and do not imply current Intel support.
+
 ## Automated desktop coverage — 2026-10-13
 
 - Added five hosted UI tests for sidebar navigation, Signing Profiles' return-to-workspace action, signing/unsigned export readiness, mutually exclusive extension policies, nested disclosure actions, and disabled controls during a job. Five additional model tests cover default policies, session reset/password clearing, busy-job guards, input acceptance, and invalid-IPA preflight behavior.
@@ -125,7 +132,7 @@ The [RC.2 artifact qualification record](QUALIFICATION-0.1.0-rc.2.md) identifies
 
 | Area | State | Evidence / remaining work |
 | --- | --- | --- |
-| Architecture | Implemented | Native macOS 14+ SwiftUI, shared Swift 6 engine and CLI, system libarchive |
+| Architecture | Implemented | Apple Silicon-only macOS 14+ SwiftUI, shared Swift 6 engine and CLI, system libarchive |
 | Safe IPA/DEB handling | Verified locally | Adversarial archive tests, thin/fat Mach-O editing, real DEB injection and signing |
 | Certificate/profile validation | Verified locally | Apple-signed profile validation, actual P12 import, certificate matching, isolated-keychain native integration tests |
 | Signing and entitlement policy | Verified locally | Actual supplied IPA signed with matching credentials; strict rejects unsupported capabilities, compatible records omissions |
@@ -133,7 +140,7 @@ The [RC.2 artifact qualification record](QUALIFICATION-0.1.0-rc.2.md) identifies
 | Saved signing profiles | Verified locally | Actual supplied identity saved, private copies reused after temporary import sources were deleted, rename/delete/reload and native Keychain CRUD verified |
 | Automatic app-ID resolution | Verified locally | Explicit profile mismatch resolved without a manual override; ambiguity, wildcard, Preserve and certificate membership tested |
 | Automated tests | Passing | 169 tests, zero failures or skips in the current working-tree evaluation; unit, adversarial, native-tool, hosted UI and local HTTP integration |
-| Build and release automation | Local package verified / CI configured | Canonical universal app and embedded CLI verified, SDK/deployment stamps checked; ZIP creation is explicit; Apple silicon/Intel GitHub workflows have not run |
+| Build and release automation | Local package verified / CI configured | ARM64-only app/CLI packaging and Apple Silicon CI configuration; ZIP creation is explicit; hosted workflows have not run |
 | Device installation and launch | Unverified | Exported IPA has not been installed or exercised on a registered iOS device |
 | Developer ID / notarization | Credentials needed | No macOS distribution identity or notary credentials supplied; local artifacts are ad-hoc signed |
 | GitHub publication | Not configured | No repository remote provided; source history and release artifacts remain local |

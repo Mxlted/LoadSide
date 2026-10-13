@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Require Apple Silicon Macs while retaining macOS 14. Build, verify, and package only native ARM64 app/CLI executables; remove Intel CI and helper pins, reject unsupported build hosts/targets, and name new archives `macOS-arm64`. Preserve universal/fat user-archive handling and all signing policies.
+- Consolidate architecture, warning policy, and SDK/deployment verification in the shared build configuration, including every bundled executable. Keep fail-closed production signing/notarization and non-overwriting archives.
+- Reuse a bounded checksum buffer for the pinned ARM64 HTTPS helper, retaining descriptor-based integrity checks, private storage, and cancellation cleanup. Report the existing official helper’s macOS 15 minimum before setup; retain local/custom HTTPS on macOS 14.
+
 - Add isolated hosted desktop interaction tests and workspace-model regressions for navigation, signing controls, defaults, reset, busy-job guards, and input validation. Share the existing signing-options view between the workspace and component tests while preserving its expansion state.
 - Confine required legacy file-Keychain lifecycle and ACL APIs to a documented compatibility adapter, preserving temporary signing isolation and saved-password compatibility. Strengthen isolation/cleanup tests and reject new Swift warnings and C deprecations in repository checks.
 
