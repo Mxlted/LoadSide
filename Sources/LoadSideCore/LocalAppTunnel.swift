@@ -238,7 +238,8 @@ private final class LocalTunnelChild: @unchecked Sendable {
                 "--metrics", "127.0.0.1:0", "--loglevel", "info", "--output", "json"
             ]
             process.currentDirectoryURL = directory
-            process.environment = ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "LC_ALL": "C", "HOME": directory.path, "TMPDIR": directory.path]
+            let workspacePath = directory.path
+            process.environment = ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "LC_ALL": "C", "HOME": workspacePath, "TMPDIR": workspacePath]
             process.standardInput = FileHandle.nullDevice
             process.standardOutput = writer
             process.standardError = writer

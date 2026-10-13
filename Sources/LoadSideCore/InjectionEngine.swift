@@ -99,8 +99,8 @@ public struct InjectionEngine: Sendable {
             try Task.checkCancellation()
             let isBundle = ["app", "appex", "framework", "bundle", "xpc"].contains(directory.pathExtension.lowercased())
             let hasSeal = (try? directory.appendingPathComponent("_CodeSignature").resourceValues(forKeys: [.isSymbolicLinkKey])) != nil
-            let names =
-                ["_CodeSignature"] + (isBundle || hasSeal ? ["CodeResources", "embedded.mobileprovision", "embedded.provisionprofile"] : [])
+            let bundleArtifacts = ["CodeResources", "embedded.mobileprovision", "embedded.provisionprofile"]
+            let names = ["_CodeSignature"] + (isBundle || hasSeal ? bundleArtifacts : [])
             for name in names {
                 let artifact = directory.appendingPathComponent(name)
                 // resourceValues detects symlinks too, including dangling ones after a seal is removed.

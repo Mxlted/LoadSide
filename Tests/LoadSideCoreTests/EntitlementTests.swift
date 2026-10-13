@@ -165,10 +165,9 @@ final class EntitlementTests: XCTestCase {
             try ProvisioningProfile.select(from: [wildcard, exact], bundleIdentifier: "com.example.app", certificate: Data([1, 2, 3])).uuid,
             exact.uuid)
         XCTAssertThrowsError(try ProvisioningProfile.select(from: [exact], bundleIdentifier: "com.example.app", certificate: Data([9])))
+        let duplicate = try testProfile(id: "NEWTEAM.com.example.app")
         XCTAssertThrowsError(
-            try ProvisioningProfile.select(
-                from: [exact, testProfile(id: "NEWTEAM.com.example.app")], bundleIdentifier: "com.example.app", certificate: Data([1, 2, 3])
-            ))
+            try ProvisioningProfile.select(from: [exact, duplicate], bundleIdentifier: "com.example.app", certificate: Data([1, 2, 3])))
     }
 
     func testExpiredProfileRejected() { XCTAssertThrowsError(try testProfile(expiration: Date().addingTimeInterval(-1))) }
