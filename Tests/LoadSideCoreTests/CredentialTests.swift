@@ -28,6 +28,34 @@ final class CredentialTests: XCTestCase {
         return SecItemCopyMatching(query as CFDictionary, &result)
     }
 
+    /// Inspect only this test's generated identity, never the user's keychain items.
+    private func fixtureIdentityDiagnostic(_ identity: SigningIdentity, runner: ProcessRunner) async throws -> String {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassIdentity,
+            kSecMatchSearchList as String: [identity.keychain],
+            kSecUseDataProtectionKeychain as String: false,
+            kSecReturnRef as String: true, kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+        var result: CFTypeRef?
+        let identityStatus = SecItemCopyMatching(query as CFDictionary, &result)
+        var diagnostic = "Scoped identity lookup status: \(identityStatus)"
+        if identityStatus == errSecSuccess, let result {
+            let reference = result as! SecIdentity
+            var key: SecKey?
+            let keyStatus = SecIdentityCopyPrivateKey(reference, &key)
+            diagnostic += "; private key status: \(keyStatus)"
+            if let key, let attributes = SecKeyCopyAttributes(key) as? [String: Any] {
+                diagnostic += "; can sign: \(String(describing: attributes[kSecAttrCanSign as String]))"
+            }
+        }
+        let policy = try await runner.run(
+            "/usr/bin/security", ["find-identity", "-p", "codesigning", identity.keychainURL.path],
+            timeout: 15, check: false)
+        diagnostic += "\nGenerated fixture policy report (status \(policy.status)):\n"
+        diagnostic += String(decoding: policy.stdout + policy.stderr, as: UTF8.self)
+        return diagnostic
+    }
+
     /// Synthetic self-signed identity tests isolation/import; it cannot authorize iOS installation.
     func testP12ImportsIntoDisposableKeychainAndValidatesMembership() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -77,12 +105,16 @@ final class CredentialTests: XCTestCase {
             "application-identifier": "NEWTEAM.com.example.fixture", "com.apple.developer.team-identifier": "NEWTEAM"
         ]
         try PropertyListSerialization.data(fromPropertyList: expectedClaims, format: .xml, options: 0).write(to: claims)
-        _ = try await runner.run(
+        let signing = try await runner.run(
             "/usr/bin/codesign",
             [
                 "--force", "--sign", try XCTUnwrap(identity?.fingerprint), "--keychain", keychainPath.path, "--timestamp=none",
                 "--generate-entitlement-der", "--entitlements", claims.path, binary.path
-            ], timeout: 15)
+            ], timeout: 15, check: false)
+        guard signing.status == 0 else {
+            let diagnostic = try await fixtureIdentityDiagnostic(try XCTUnwrap(identity), runner: runner)
+            throw LoadSideError("fixture.signing", "codesign failed (\(signing.status)): \(signing.diagnostic)\n\(diagnostic)")
+        }
         _ = try await runner.run("/usr/bin/codesign", ["--verify", "--strict", binary.path])
         let signedClaims = try await runner.run("/usr/bin/codesign", ["--display", "--entitlements", "-", "--xml", binary.path])
         XCTAssertEqual(
