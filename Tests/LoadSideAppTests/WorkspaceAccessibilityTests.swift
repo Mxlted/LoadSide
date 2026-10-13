@@ -238,6 +238,13 @@ private final class MemoryPasswords: SigningProfilePasswordStorage, @unchecked S
     func delete(for id: UUID) { lock.withLock { passwords[id] = nil } }
 }
 
+/// Keep layout viewports independent of the attached display, including small
+/// hosted CI screens. Native titlebars and intrinsic content sizing stay active.
+@MainActor
+private final class LayoutTestWindow: NSWindow {
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { frameRect }
+}
+
 /// Uses public AppKit views, table selection, and accessibility APIs in-process.
 /// A graphical macOS session is required; Accessibility permission is not required.
 @MainActor
@@ -269,7 +276,7 @@ final class AccessibilityHost {
         // Keep the requested viewport fixed when a destination's ideal size
         // changes. Native window sizing otherwise expands some hosted screens.
         if !configuration.nativeWindow { view.sizingOptions = [] }
-        window = NSWindow(
+        window = LayoutTestWindow(
             contentRect: NSRect(origin: NSPoint(x: -10_000, y: -10_000), size: configuration.size),
             // These are content snapshots. A titlebar makes NavigationSplitView
             // extend its hosting view into extra toolbar safe-area space.

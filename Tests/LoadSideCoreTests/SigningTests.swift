@@ -114,12 +114,29 @@ final class SigningTests: XCTestCase {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
         defer { try? FileManager.default.removeItem(at: directory) }
+        let runner = ProcessRunner()
+        let source = directory.appendingPathComponent("fixture.c")
+        let executable = directory.appendingPathComponent("fixture")
+        // Use owned ARM64 code: re-signing an Apple platform executable such as
+        // /bin/echo makes execution depend on the host's arm64e/system ABI.
+        try Data(
+            "#include <stdio.h>\nint main(int argc, char **argv) { return argc == 2 ? puts(argv[1]) == EOF : 2; }\n".utf8
+        ).write(to: source)
+        // ProcessRunner intentionally clears inherited environment. Forward only
+        // the selected developer directory so hosted tests use their pinned SDK.
+        let compilerEnvironment = ProcessInfo.processInfo.environment["DEVELOPER_DIR"].map { ["DEVELOPER_DIR=\($0)"] } ?? []
+        _ = try await runner.run(
+            "/usr/bin/env",
+            compilerEnvironment + [
+                "/usr/bin/xcrun", "--sdk", "macosx", "clang", "-arch", "arm64", "-mmacosx-version-min=14.0",
+                "-Wall", "-Werror", source.path, "-o", executable.path
+            ])
         let tree = directory.appendingPathComponent("tree")
         let app = tree.appendingPathComponent("Payload/Fixture.app")
         let widget = app.appendingPathComponent("PlugIns/Widget.appex")
         for (url, name, type) in [(app, "Fixture", "APPL"), (widget, "Widget", "XPC!")] {
             try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-            try FileManager.default.copyItem(at: URL(fileURLWithPath: "/bin/echo"), to: url.appendingPathComponent(name))
+            try FileManager.default.copyItem(at: executable, to: url.appendingPathComponent(name))
             try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: url.appendingPathComponent(name).path)
             try BundleInventory.writeInfo(
                 [
@@ -141,7 +158,6 @@ final class SigningTests: XCTestCase {
         for binary in [app.appendingPathComponent("Fixture"), widget.appendingPathComponent("Widget")] {
             XCTAssertEqual((try FileManager.default.attributesOfItem(atPath: binary.path)[.posixPermissions] as? NSNumber)?.intValue, 0o755)
         }
-        let runner = ProcessRunner()
         for target in targets {
             _ = try await runner.run(
                 "/usr/bin/codesign", ["--force", "--sign", "-", "--timestamp=none", "--generate-entitlement-der", target.path])
@@ -159,6 +175,10 @@ final class SigningTests: XCTestCase {
         for target in try BundleInventory.signingTargets(in: exportedApp) {
             _ = try await runner.run("/usr/bin/codesign", ["--verify", "--strict", target.path])
         }
+        let exportedExecution = try await runner.run(exportedApp.appendingPathComponent("Fixture").path, ["archive-round-trip"])
+        XCTAssertEqual(
+            String(decoding: exportedExecution.stdout, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines),
+            "archive-round-trip")
         let exportedWidget = exportedApp.appendingPathComponent("PlugIns/Widget.appex")
         try Data("tampered".utf8).write(to: exportedWidget.appendingPathComponent("sealed.txt"))
         let failed = try await runner.run("/usr/bin/codesign", ["--verify", "--strict", exportedWidget.path], check: false)

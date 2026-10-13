@@ -91,6 +91,9 @@ final class CredentialTests: XCTestCase {
         let during = try await keychainConfiguration(runner)
         XCTAssertEqual(before, during, "Import must not change the user's default keychain or search list")
         XCTAssertEqual(findCertificate(certificateName), errSecItemNotFound, "The fixture certificate must stay in its private keychain")
+        // The fingerprint's last read precedes an async subprocess. Keep its
+        // keychain owner alive through signing, then test explicit destruction.
+        withExtendedLifetime(identity) {}
         identity = nil
         XCTAssertFalse(FileManager.default.fileExists(atPath: keychainPath.path))
         let after = try await keychainConfiguration(runner)
