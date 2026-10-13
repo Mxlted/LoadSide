@@ -2,9 +2,15 @@
 
 ## Unreleased
 
+- Apply full-row expand/collapse controls throughout the app, including Help, Local Library addresses, and nested extension details. Include Help row padding in the click target.
+
+- Make workspace option headers clickable across the row. Make the IPA card open the file chooser, rename its empty state to “Add an IPA,” and clarify that the IPA must be decrypted.
+
+- Increase native text, controls, click targets, spacing, and window dimensions proportionally by about 10%.
+
 - Add a private signed-app library and an opt-in local web server with a mobile catalog, IPA downloads, and HTTPS OTA manifests/install links. Limit sharing to verified export copies and rotate access links each session.
 - Add credential-free **Inject only** mode in the app and `loadside inject` CLI. Export validated but unsigned IPAs with stale signatures/profiles removed; preserve inputs and require later signing for ordinary iOS installation.
-- Adapt the workspace for 16:9 displays with a 1280×720 default, compact sidebar, fixed source/mode and export controls, independent side-by-side input/settings columns, and expandable advanced details.
+- Adapt the workspace for 16:9 displays with fixed source/mode and export controls, independent side-by-side input/settings columns, and expandable advanced details.
 - Fix Keep original rejecting a main app whose metadata bundle ID differs from the supplied exact profile. Preserve the original ID while using an unambiguous profile identity for signed entitlements; show and record the mismatch. Apply the same selected profile to eligible extension reuse without requiring the preserved main ID to equal the profile ID. Keep Automatic/override behavior, certificate checks and entitlement policies unchanged.
 - Preserve each app's original bundle identifier by default in the UI and CLI; profile-based Automatic resolution remains an explicit option.
 - Default extension signing to experimental main-profile reuse while preferring valid matching profiles. Present the two extension policies as mutually exclusive checkboxes with one required selection, and add CLI `--require-matching-extension-profiles` to disable reuse. Keep Strict entitlements as the default.

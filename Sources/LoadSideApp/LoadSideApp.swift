@@ -10,12 +10,14 @@ struct LoadSideApp: App {
         WindowGroup("LoadSide") {
             MainView(model: model)
                 .tint(Palette.accent)
-                .frame(minWidth: 960, minHeight: 600)
+                .font(.system(size: 14))
+                .controlSize(.large)
+                .frame(minWidth: AppMetrics.minimumWindowSize.width, minHeight: AppMetrics.minimumWindowSize.height)
                 .onOpenURL { model.accept([$0]) }
                 .onAppear { delegate.model = model }
         }
         .windowToolbarStyle(.unified)
-        .defaultSize(width: 1280, height: 720)
+        .defaultSize(width: AppMetrics.defaultWindowSize.width, height: AppMetrics.defaultWindowSize.height)
         .commands {
             CommandGroup(replacing: .newItem) {
                 Button("Open IPA…", action: model.chooseIPA).keyboardShortcut("o").disabled(model.isRunning)
@@ -71,7 +73,7 @@ struct MainView: View {
     var body: some View {
         HStack(spacing: 0) {
             if sidebarVisible {
-                sidebar.frame(width: 182)
+                sidebar.frame(width: AppMetrics.sidebarWidth)
                 Divider()
             }
             ZStack(alignment: .topLeading) {
@@ -87,6 +89,7 @@ struct MainView: View {
             .background(Palette.background)
         }
         .background(Palette.background)
+        .disclosureGroupStyle(FullRowDisclosureStyle())
         .navigationTitle(title)
         .toolbar { workspaceToolbar }
         .alert("Unable to complete action", isPresented: Binding(get: { model.notice != nil }, set: { if !$0 { model.notice = nil } })) {
@@ -101,9 +104,9 @@ struct MainView: View {
         }
         if model.isRunning {
             ToolbarItem(placement: .principal) {
-                HStack(spacing: 8) {
+                HStack(spacing: 9) {
                     ProgressView().controlSize(.mini)
-                    Text(model.isCancelling ? "Cancelling…" : model.jobMode == .sign ? "Signing…" : "Injecting…").font(.system(size: 12)).foregroundStyle(.secondary)
+                    Text(model.isCancelling ? "Cancelling…" : model.jobMode == .sign ? "Signing…" : "Injecting…").font(.system(size: 13)).foregroundStyle(.secondary)
                 }
             }
         }
@@ -115,48 +118,48 @@ struct MainView: View {
     }
 
     private var sidebar: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            HStack(spacing: 10) {
-                SymbolTile(symbol: "signature", size: 36)
+        VStack(alignment: .leading, spacing: 22) {
+            HStack(spacing: 11) {
+                SymbolTile(symbol: "signature", size: 40)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("LoadSide").font(.system(size: 16, weight: .semibold))
-                    Text("Your app workspace").font(.system(size: 11)).foregroundStyle(.secondary)
+                    Text("LoadSide").font(.system(size: 18, weight: .semibold))
+                    Text("Your app workspace").font(.system(size: 12)).foregroundStyle(.secondary)
                 }
-            }.padding(.horizontal, 6).padding(.top, 8)
-            VStack(spacing: 5) {
+            }.padding(.horizontal, 7).padding(.top, 9)
+            VStack(spacing: 6) {
                 ForEach(AppSection.allCases) { section in
                     Button { model.section = section } label: {
-                        HStack(spacing: 10) {
-                            Image(systemName: section.symbol).frame(width: 20)
-                            Text(section.rawValue).font(.system(size: 12, weight: model.section == section ? .semibold : .regular))
+                        HStack(spacing: 11) {
+                            Image(systemName: section.symbol).frame(width: 22)
+                            Text(section.rawValue).font(.system(size: 13, weight: model.section == section ? .semibold : .regular)).lineLimit(1)
                             Spacer(minLength: 0)
                             if section == .activity, model.isRunning {
                                 ProgressView().controlSize(.mini).accessibilityLabel("Export in progress")
                             }
                         }
-                        .padding(.horizontal, 9).padding(.vertical, 10)
+                        .padding(.horizontal, 10).padding(.vertical, 11)
                         .foregroundStyle(model.section == section ? Color.primary : Color.secondary)
                         .background(model.section == section ? Palette.accent.opacity(0.16) : .clear,
-                                    in: RoundedRectangle(cornerRadius: 10))
+                                    in: RoundedRectangle(cornerRadius: 11))
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .accessibilityAddTraits(model.section == section ? .isSelected : [])
                 }
             }
-            .padding(6)
-            .floatingControlSurface(cornerRadius: 16)
-            Spacer(minLength: 12)
-            HStack(alignment: .top, spacing: 8) {
-                Image(systemName: "lock.shield").font(.system(size: 13)).accessibilityHidden(true)
+            .padding(7)
+            .floatingControlSurface(cornerRadius: 18)
+            Spacer(minLength: 13)
+            HStack(alignment: .top, spacing: 9) {
+                Image(systemName: "lock.shield").font(.system(size: 14)).accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Prepared on your Mac").font(.system(size: 11, weight: .medium))
+                    Text("Prepared on your Mac").font(.system(size: 12, weight: .medium))
                     Text(Bundle.main.infoDictionary?["LoadSideVersion"] as? String ?? "0.1.0-rc.2")
-                        .font(.system(size: 10, design: .monospaced))
+                        .font(.system(size: 11, design: .monospaced))
                 }
-            }.foregroundStyle(.secondary).padding(.horizontal, 8).padding(.bottom, 4)
+            }.foregroundStyle(.secondary).padding(.horizontal, 9).padding(.bottom, 4)
         }
-        .padding(12)
+        .padding(13)
         .frame(maxHeight: .infinity)
     }
 }

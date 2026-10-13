@@ -3,9 +3,9 @@ import SwiftUI
 struct GuideView: View {
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 22) {
+            VStack(alignment: .leading, spacing: 24) {
                 PageHeading(title: "LoadSide Help", detail: "Prepare, sign, and share apps from your Mac.")
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 350), spacing: 20, alignment: .top)], alignment: .leading, spacing: 22) {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 385), spacing: 22, alignment: .top)], alignment: .leading, spacing: 24) {
                 helpSection("Signing an app", symbol: "signature", entries: [
                     ("Choose the IPA", "Open or drop a decrypted app archive. LoadSide inspects its bundle identifier and extensions before signing. It does not remove FairPlay encryption."),
                     ("Choose the identity", "Import a P12 with a usable private key and Apple signing certificate, enter its password, and add a mobileprovision that authorizes the app. Matching profiles are preferred for extensions; experimental main-profile reuse is selected by default when a matching extension profile is missing. Nested apps always need matching profiles."),
@@ -41,21 +41,22 @@ struct GuideView: View {
                     ("Installation requirements", "Use Local Library with a trusted HTTPS address for browser install links, or install a signed IPA with another installation tool. Unsigned injected IPAs must be signed first. Apple ID provisioning, certificate renewal, and decryption are outside this workflow.")
                 ])
                 }
-            }.padding(22).frame(maxWidth: .infinity, alignment: .leading)
+            }.padding(AppMetrics.pagePadding).frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
     private func helpSection(_ title: String, symbol: String, entries: [(String, String)]) -> some View {
-        VStack(alignment: .leading, spacing: 13) {
-            Label(title, systemImage: symbol).font(.system(size: 14, weight: .semibold))
+        VStack(alignment: .leading, spacing: 14) {
+            Label(title, systemImage: symbol).font(.system(size: 15, weight: .semibold))
                 .labelStyle(.titleAndIcon)
-            Panel(padding: 14) {
+            Panel(padding: 15) {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(entries.indices, id: \.self) { index in
                         DisclosureGroup(entries[index].0) {
-                            Text(entries[index].1).font(.system(size: 13)).foregroundStyle(.secondary).lineSpacing(4)
-                                .fixedSize(horizontal: false, vertical: true).frame(maxWidth: .infinity, alignment: .leading).padding(.top, 8).padding(.bottom, 4)
-                        }.font(.system(size: 13, weight: .medium)).padding(.vertical, 10)
+                            Text(entries[index].1).font(.system(size: 14)).foregroundStyle(.secondary).lineSpacing(4)
+                                .fixedSize(horizontal: false, vertical: true).frame(maxWidth: .infinity, alignment: .leading).padding(.top, 9).padding(.bottom, 4)
+                        }.font(.system(size: 14, weight: .medium))
+                            .disclosureGroupStyle(FullRowDisclosureStyle(headerVerticalPadding: 16))
                         if index < entries.count - 1 { Divider() }
                     }
                 }

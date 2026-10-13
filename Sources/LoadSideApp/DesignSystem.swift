@@ -2,6 +2,16 @@ import AppKit
 import SwiftUI
 import LoadSideCore
 
+/// Shared dimensions keep the roomier app layout consistent across sections.
+enum AppMetrics {
+    static let minimumWindowSize = CGSize(width: 1056, height: 660)
+    static let defaultWindowSize = CGSize(width: 1408, height: 792)
+    static let sidebarWidth: CGFloat = 216
+    static let pagePadding: CGFloat = 24
+    static let workspaceColumnsWidth: CGFloat = 900
+    static let iconButtonSize: CGFloat = 30
+}
+
 /// Semantic colors follow macOS appearance and keep validation states distinct.
 enum Palette {
     static let background = Color(nsColor: .windowBackgroundColor)
@@ -16,14 +26,14 @@ enum Palette {
 
 struct Panel<Content: View>: View {
     @Environment(\.colorSchemeContrast) private var contrast
-    var padding: CGFloat = 18
+    var padding: CGFloat = 20
     @ViewBuilder let content: Content
     var body: some View {
         content
             .padding(padding)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Palette.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
+            .background(Palette.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .strokeBorder(contrast == .increased ? Color.primary.opacity(0.45) : Palette.separator))
     }
 }
@@ -32,10 +42,10 @@ struct PageHeading: View {
     let title: String
     var detail: String?
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text(title).font(.system(size: 23, weight: .semibold))
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title).font(.system(size: 25, weight: .semibold))
             if let detail {
-                Text(detail).font(.system(size: 13)).foregroundStyle(.secondary)
+                Text(detail).font(.system(size: 14)).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -45,7 +55,7 @@ struct PageHeading: View {
 struct SymbolTile: View {
     let symbol: String
     var color: Color = Palette.accent
-    var size: CGFloat = 40
+    var size: CGFloat = 44
     var body: some View {
         Image(systemName: symbol)
             .font(.system(size: size * 0.45, weight: .medium))
@@ -60,9 +70,9 @@ struct SectionHeading: View {
     let title: String
     var detail: String?
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text(title).font(.system(size: 14, weight: .semibold))
-            if let detail { Text(detail).font(.system(size: 12)).foregroundStyle(.secondary) }
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title).font(.system(size: 15, weight: .semibold))
+            if let detail { Text(detail).font(.system(size: 13)).foregroundStyle(.secondary) }
         }
     }
 }
@@ -73,12 +83,12 @@ struct FileRow: View {
     var showDirectory = false
     var remove: (() -> Void)?
     var body: some View {
-        HStack(spacing: 9) {
-            Image(systemName: symbol).foregroundStyle(.secondary).frame(width: 18)
+        HStack(spacing: 10) {
+            Image(systemName: symbol).foregroundStyle(.secondary).frame(width: 20)
             VStack(alignment: .leading, spacing: 3) {
-                Text(url.lastPathComponent).font(.system(size: 12, weight: .medium)).lineLimit(1).truncationMode(.middle)
+                Text(url.lastPathComponent).font(.system(size: 13, weight: .medium)).lineLimit(1).truncationMode(.middle)
                 if showDirectory {
-                    Text(url.deletingLastPathComponent().path).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                    Text(url.deletingLastPathComponent().path).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
                 }
             }
             Spacer(minLength: 2)
@@ -93,7 +103,7 @@ struct RemoveButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
-                .frame(width: 24, height: 24).contentShape(Rectangle())
+                .frame(width: AppMetrics.iconButtonSize, height: AppMetrics.iconButtonSize).contentShape(Rectangle())
         }
             .buttonStyle(.borderless).help(label).accessibilityLabel(label)
     }
@@ -110,12 +120,12 @@ struct StatusPill: View {
         }
     }
     var body: some View {
-        HStack(spacing: 5) {
-            Circle().fill(color).frame(width: 5, height: 5)
-            Text(status.title).font(.system(size: 11, weight: .medium))
+        HStack(spacing: 6) {
+            Circle().fill(color).frame(width: 6, height: 6)
+            Text(status.title).font(.system(size: 12, weight: .medium))
         }
         .foregroundStyle(color)
-        .padding(.horizontal, 8).padding(.vertical, 4)
+        .padding(.horizontal, 9).padding(.vertical, 4)
         .background(color.opacity(0.09), in: Capsule())
         .accessibilityElement(children: .combine)
     }
@@ -126,13 +136,13 @@ struct InlineNotice: View {
     var color: Color = Palette.warning
     var symbol = "exclamationmark.circle"
     var body: some View {
-        HStack(alignment: .top, spacing: 9) {
+        HStack(alignment: .top, spacing: 10) {
             Image(systemName: symbol).foregroundStyle(color).padding(.top, 1).accessibilityHidden(true)
-            Text(message).font(.system(size: 12)).fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+            Text(message).font(.system(size: 13)).fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
         }
-        .padding(12)
+        .padding(13)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(color.opacity(0.075), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .background(color.opacity(0.075), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
     }
 }
 
@@ -141,12 +151,12 @@ struct EmptyState: View {
     let title: String
     let description: String
     var body: some View {
-        VStack(spacing: 12) {
-            SymbolTile(symbol: symbol, size: 64).padding(.bottom, 6)
-            Text(title).font(.system(size: 19, weight: .semibold))
-            Text(description).font(.system(size: 13)).foregroundStyle(.secondary).multilineTextAlignment(.center)
-                .lineSpacing(3).frame(maxWidth: 380)
-        }.frame(maxWidth: .infinity, maxHeight: .infinity).padding(30)
+        VStack(spacing: 13) {
+            SymbolTile(symbol: symbol, size: 70).padding(.bottom, 7)
+            Text(title).font(.system(size: 21, weight: .semibold))
+            Text(description).font(.system(size: 14)).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                .lineSpacing(3).frame(maxWidth: 418)
+        }.frame(maxWidth: .infinity, maxHeight: .infinity).padding(33)
     }
 }
 
@@ -155,11 +165,11 @@ struct MetadataRow: View {
     let value: String
     var monospaced = false
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 14) {
-            Text(label).foregroundStyle(.secondary).frame(width: 116, alignment: .leading)
-            Text(value).font(.system(size: 12, design: monospaced ? .monospaced : .default))
+        HStack(alignment: .firstTextBaseline, spacing: 15) {
+            Text(label).foregroundStyle(.secondary).frame(width: 128, alignment: .leading)
+            Text(value).font(.system(size: 13, design: monospaced ? .monospaced : .default))
                 .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
-        }.font(.system(size: 12)).fixedSize(horizontal: false, vertical: true)
+        }.font(.system(size: 13)).fixedSize(horizontal: false, vertical: true)
     }
 }
 
@@ -218,14 +228,46 @@ private struct AdaptiveGlassButton: ViewModifier {
 
 extension View {
     func inputField() -> some View {
-        self.textFieldStyle(.roundedBorder).font(.system(size: 12))
+        self.textFieldStyle(.roundedBorder).font(.system(size: 13))
     }
 
-    func floatingControlSurface(cornerRadius: CGFloat = 20) -> some View {
+    func floatingControlSurface(cornerRadius: CGFloat = 22) -> some View {
         modifier(FloatingControlSurface(cornerRadius: cornerRadius))
     }
 
     func adaptiveGlassButton(prominent: Bool = false) -> some View {
         modifier(AdaptiveGlassButton(prominent: prominent))
+    }
+}
+
+/// Shared across the app so the whole disclosure header is one accessible control.
+struct FullRowDisclosureStyle: DisclosureGroupStyle {
+    var headerVerticalPadding: CGFloat = 5
+
+    func makeBody(configuration: Configuration) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                withAnimation { configuration.isExpanded.toggle() }
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 10, weight: .semibold))
+                        .rotationEffect(.degrees(configuration.isExpanded ? 90 : 0))
+                        .accessibilityHidden(true)
+                    configuration.label
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .padding(.vertical, headerVerticalPadding)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityValue(configuration.isExpanded ? "Expanded" : "Collapsed")
+            .accessibilityHint("Expand or collapse section")
+            if configuration.isExpanded {
+                configuration.content
+                    // SwiftUI resets the style inside disclosure content; keep nested rows consistent.
+                    .disclosureGroupStyle(self)
+            }
+        }
     }
 }
