@@ -135,10 +135,12 @@ public enum Injection {
             let destination = "@executable_path/Frameworks/" + candidate.relativePath
             infos[candidate.relativePath] = info
             let keys = [candidate.originalPath, candidate.source.lastPathComponent] + info.slices.compactMap(\.installName)
-            for key in keys {
+            // Rootful and rootless spellings participate in the same ambiguity
+            // checks; neither input order may silently choose a dependency.
+            let normalizedKeys = keys + keys.filter { $0.hasPrefix("/var/jb/") }.map { String($0.dropFirst(7)) }
+            for key in normalizedKeys {
                 if let existing = aliases[key], existing != destination { throw LoadSideError("injection.ambiguous", "Multiple injected libraries share the install name \(key).") }
                 aliases[key] = destination
-                if key.hasPrefix("/var/jb/") { aliases[String(key.dropFirst(7))] = destination }
             }
         }
         var plans: [(Candidate, [String: String])] = []
@@ -230,18 +232,10 @@ public enum Injection {
         guard FileManager.default.fileExists(atPath: binary.path) else { throw LoadSideError("injection.framework", "Framework executable is missing: \(executable)") }
         // Versioned macOS framework layouts cannot be embedded as iOS frameworks.
         guard try binary.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink != true else { throw LoadSideError("injection.frameworkLayout", "Versioned or symbolic framework executables are unsupported for iOS injection.") }
-        if let files = fmFiles(framework) {
-            for file in files where file.resolvingSymlinksInPath() != binary.resolvingSymlinksInPath() && MachO.isMachO(file) {
-                throw LoadSideError("injection.nestedCode", "Framework contains additional executable code requiring separate dependency validation: \(file.lastPathComponent)")
-            }
+        for file in try BundleInventory.contents(framework) where file.resolvingSymlinksInPath() != binary.resolvingSymlinksInPath() && MachO.isMachO(file) {
+            throw LoadSideError("injection.nestedCode", "Framework contains additional executable code requiring separate dependency validation: \(file.lastPathComponent)")
         }
         return [Candidate(source: binary, originalPath: original + "/" + executable, relativePath: framework.lastPathComponent + "/" + executable, entryPoint: entryPoint)]
-    }
-    private static func fmFiles(_ directory: URL) -> [URL]? {
-        FileManager.default.enumerator(at: directory, includingPropertiesForKeys: [.isRegularFileKey])?.compactMap { item in
-            guard let url = item as? URL, (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else { return nil }
-            return url
-        }
     }
     @discardableResult private static func validateTree(_ source: URL) throws -> (entries: Int, bytes: Int64) {
         let fm = FileManager.default
@@ -250,7 +244,11 @@ public enum Injection {
         guard bytes <= 4 * 1_024 * 1_024 * 1_024 else { throw LoadSideError("injection.limit", "Injection file exceeds the 4 GiB input limit.") }
         guard values.isSymbolicLink != true, values.isDirectory == true || values.isRegularFile == true else { throw LoadSideError("injection.source", "Injection source must be a real file or directory: \(source.lastPathComponent)") }
         if values.isDirectory == true {
-            guard let enumerator = fm.enumerator(at: source, includingPropertiesForKeys: [.isSymbolicLinkKey, .isRegularFileKey, .isDirectoryKey]) else { throw LoadSideError("injection.source", "Unable to inspect injection directory.") }
+            var enumerationError: Error?
+            guard let enumerator = fm.enumerator(at: source, includingPropertiesForKeys: [.isSymbolicLinkKey, .isRegularFileKey, .isDirectoryKey], errorHandler: { _, error in
+                enumerationError = error
+                return false
+            }) else { throw LoadSideError("injection.source", "Unable to inspect injection directory.") }
             for case let file as URL in enumerator {
                 try Task.checkCancellation()
                 let item = try file.resourceValues(forKeys: [.isSymbolicLinkKey, .isRegularFileKey, .isDirectoryKey, .fileSizeKey])
@@ -271,6 +269,7 @@ public enum Injection {
                     throw LoadSideError("injection.nestedCode", "Nested code inside an injected framework or resource bundle requires separate supported inputs: \(file.lastPathComponent)")
                 }
             }
+            if let enumerationError { throw enumerationError }
         }
         return (entries, bytes)
     }

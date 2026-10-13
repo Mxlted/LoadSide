@@ -153,13 +153,22 @@ public enum Archive {
         }
         archive_write_set_format_zip(writer)
         guard archive_write_open_fd(writer, descriptor) == ARCHIVE_OK else { throw failure(writer, "open export") }
-        guard let enumerator = fm.enumerator(atPath: root.path) else {
+        var enumerationError: Error?
+        guard let enumerator = fm.enumerator(at: root, includingPropertiesForKeys: nil, errorHandler: { _, error in
+            enumerationError = error
+            return false
+        }) else {
             throw LoadSideError("archive.enumerate", "Unable to enumerate export contents.")
         }
-        // URL enumeration may canonicalize /var to /private/var independently of the input URL.
-        // Relative enumeration avoids subtracting inconsistent filesystem aliases from absolute paths.
-        let names = enumerator.compactMap { $0 as? String }.sorted()
-        for name in names {
+        // Enumerated URLs may canonicalize /var to /private/var. The enumeration
+        // depth identifies relative components without subtracting filesystem aliases.
+        var names: [String] = []
+        for case let file as URL in enumerator {
+            try Task.checkCancellation()
+            names.append(file.pathComponents.suffix(enumerator.level).joined(separator: "/"))
+        }
+        if let enumerationError { throw enumerationError }
+        for name in names.sorted() {
             let file = root.appendingPathComponent(name)
             try Task.checkCancellation()
             let values = try file.resourceValues(forKeys: [.isSymbolicLinkKey, .isDirectoryKey, .isRegularFileKey, .fileSizeKey])

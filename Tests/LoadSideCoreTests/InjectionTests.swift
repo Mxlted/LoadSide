@@ -29,6 +29,55 @@ final class InjectionTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: app.appendingPathComponent("Frameworks/Tweak.dylib").path))
         XCTAssertTrue(try MachO.inspect(binary).slices[0].dependencies.isEmpty)
     }
+
+    func testRootlessAliasConflictsAreRejectedInEitherInputOrderBeforeCopy() throws {
+        for reversed in [false, true] {
+            let root = try BinaryFixtures.temporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: root) }
+            let (app, binary) = try app(in: root)
+            let original = try Data(contentsOf: binary)
+            let first = root.appendingPathComponent("First.dylib")
+            let second = root.appendingPathComponent("Second.dylib")
+            for (file, installName) in [(first, "/usr/lib/Shared.dylib"), (second, "/var/jb/usr/lib/Shared.dylib")] {
+                try BinaryFixtures.macho(fileType: 6).write(to: file)
+                try MachO.rewrite(file, dependencies: [:], installName: installName)
+            }
+            let inputs = reversed ? [second, first] : [first, second]
+
+            XCTAssertThrowsError(try Injection.inject(inputs: inputs, into: app, executable: binary, workspace: root)) { error in
+                XCTAssertEqual((error as? LoadSideError)?.code, "injection.ambiguous")
+            }
+            XCTAssertEqual(try Data(contentsOf: binary), original)
+            for file in inputs {
+                XCTAssertFalse(FileManager.default.fileExists(atPath: app.appendingPathComponent("Frameworks/" + file.lastPathComponent).path))
+            }
+        }
+    }
+
+    func testUnreadableFrameworkContentsFailBeforeCopyOrCodeChanges() throws {
+        let fm = FileManager.default
+        let root = try BinaryFixtures.temporaryDirectory()
+        let framework = root.appendingPathComponent("Tweak.framework")
+        let blocked = framework.appendingPathComponent("Resources")
+        defer {
+            try? fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: blocked.path)
+            try? fm.removeItem(at: root)
+        }
+        let (app, binary) = try app(in: root)
+        let original = try Data(contentsOf: binary)
+        try fm.createDirectory(at: blocked, withIntermediateDirectories: true)
+        try BinaryFixtures.macho(fileType: 6).write(to: framework.appendingPathComponent("Tweak"))
+        try BundleInventory.writeInfo(["CFBundleIdentifier": "test.example.tweak", "CFBundleExecutable": "Tweak"], to: framework)
+        try Data("required resource".utf8).write(to: blocked.appendingPathComponent("asset"))
+        try fm.setAttributes([.posixPermissions: 0o000], ofItemAtPath: blocked.path)
+        guard (try? fm.contentsOfDirectory(atPath: blocked.path)) == nil else {
+            throw XCTSkip("This user can read directories despite restrictive permissions.")
+        }
+
+        XCTAssertThrowsError(try Injection.inject(inputs: [framework], into: app, executable: binary, workspace: root))
+        XCTAssertEqual(try Data(contentsOf: binary), original)
+        XCTAssertFalse(fm.fileExists(atPath: app.appendingPathComponent("Frameworks/Tweak.framework").path))
+    }
     func testDEBExtractsTweakAndDependencyWithoutInstallingScripts() throws {
         let root = try BinaryFixtures.temporaryDirectory(); defer { try? FileManager.default.removeItem(at: root) }
         let (app, binary) = try app(in: root), deb = root.appendingPathComponent("Tweak.deb")

@@ -2,6 +2,37 @@ import XCTest
 @testable import LoadSideCore
 
 final class SigningTests: XCTestCase {
+    func testUnsignedDiagnosticTextInFilenameCannotHideUnreadableEntitlements() async throws {
+        let root = try BinaryFixtures.temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let ipa = root.appendingPathComponent("Source.ipa")
+        let certificate = root.appendingPathComponent("Unused.p12")
+        let profile = root.appendingPathComponent("Unused.mobileprovision")
+        let output = root.appendingPathComponent("Signed.ipa")
+        let malformed = BinaryFixtures.machoWithMalformedSignature()
+        let info = try PropertyListSerialization.data(fromPropertyList: [
+            "CFBundleIdentifier": "test.example.app", "CFBundleExecutable": "App"
+        ], format: .xml, options: 0)
+        let archive = ArchiveFixtures.tar([
+            .init(path: "Payload/not signed at all.app/Info.plist", data: info),
+            .init(path: "Payload/not signed at all.app/App", data: malformed)
+        ])
+        try archive.write(to: ipa)
+        // Entitlement inspection must fail before either credential is parsed.
+        try Data("unused credential".utf8).write(to: certificate)
+        try Data("unused profile".utf8).write(to: profile)
+        XCTAssertTrue(try MachO.inspect(data: malformed).hasCodeSignature)
+
+        do {
+            _ = try await SigningEngine().run(.init(ipa: ipa, certificate: certificate, password: "", profiles: [profile], output: output)) { _ in }
+            XCTFail("An app filename must not turn an entitlement-reading failure into an unsigned app")
+        } catch let error as LoadSideError {
+            XCTAssertEqual(error.code, "entitlements.read")
+        }
+        XCTAssertEqual(try Data(contentsOf: ipa), archive)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: output.path))
+    }
+
     func testMainAppStillRejectsMalformedAppsAndMetadataNamedDirectoriesOrLinks() throws {
         for kind in ["file", "directory", "symlink"] {
             let root = try BinaryFixtures.temporaryDirectory()
@@ -29,10 +60,10 @@ final class SigningTests: XCTestCase {
         let existing = directory.appendingPathComponent("existing.ipa"), staging = directory.appendingPathComponent("new.ipa")
         try Data("original".utf8).write(to: existing)
         try Data("new".utf8).write(to: staging)
-        XCTAssertThrowsError(try SigningEngine.commit(staging: staging, destination: existing))
+        XCTAssertThrowsError(try IPAExport.commit(staging: staging, destination: existing))
         XCTAssertEqual(try String(contentsOf: existing, encoding: .utf8), "original")
         let final = directory.appendingPathComponent("export.ipa")
-        try SigningEngine.commit(staging: staging, destination: final)
+        try IPAExport.commit(staging: staging, destination: final)
         XCTAssertEqual(try String(contentsOf: final, encoding: .utf8), "new")
         XCTAssertFalse(FileManager.default.fileExists(atPath: staging.path))
     }

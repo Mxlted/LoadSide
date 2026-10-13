@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Separate bundle inventory and shared IPA export transactions from signing orchestration; move reusable synthetic test fixtures into a dedicated support directory.
+- Fail closed on unreadable archive/injection directories, ambiguous rootful/rootless injection aliases, and malformed signatures whose filenames mimic unsigned-code diagnostics. Preserve engine event IDs and timestamps during diagnostic redaction.
+
 - Apply full-row expand/collapse controls throughout the app, including Help, Local Library addresses, and nested extension details. Include Help row padding in the click target.
 
 - Make workspace option headers clickable across the row. Make the IPA card open the file chooser, rename its empty state to “Add an IPA,” and clarify that the IPA must be decrypted.

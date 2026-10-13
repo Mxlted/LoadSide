@@ -79,6 +79,21 @@ public struct SigningEvent: Codable, Sendable, Identifiable {
         id = UUID(); date = Date(); self.stage = stage
         self.fraction = min(1, max(0, fraction)); self.message = message; self.level = level
     }
+
+    /// Redaction changes only the diagnostic, preserving the engine event's identity and time.
+    public func redacting(secret: String) -> SigningEvent {
+        guard !secret.isEmpty else { return self }
+        return SigningEvent(original: self, message: message.replacingOccurrences(of: secret, with: "[redacted]"))
+    }
+
+    private init(original: SigningEvent, message: String) {
+        id = original.id
+        date = original.date
+        stage = original.stage
+        fraction = original.fraction
+        level = original.level
+        self.message = message
+    }
 }
 
 public struct SigningResult: Codable, Sendable {

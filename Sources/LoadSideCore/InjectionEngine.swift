@@ -54,13 +54,8 @@ public struct InjectionEngine: Sendable {
             }
         }
         emit(.exporting, 0.90, "Packaging the unsigned IPA for signing later.")
-        let staging = request.output.deletingLastPathComponent().appendingPathComponent(".LoadSide-\(UUID().uuidString).ipa")
-        defer { try? fm.removeItem(at: staging) }
-        try Archive.createIPA(from: extracted, to: staging)
-        let hash = try SigningEngine.sha256(staging)
         let info = try BundleInventory.readInfo(app.appendingPathComponent("Info.plist"))
-        try Task.checkCancellation()
-        try SigningEngine.commit(staging: staging, destination: request.output)
+        let hash = try IPAExport.write(from: extracted, to: request.output)
         emit(.completed, 1, "Unsigned IPA exported. Signing is still required before device installation.")
         return InjectionExportResult(output: request.output, bundleIdentifier: main.identifier,
             displayName: info["CFBundleDisplayName"] as? String ?? info["CFBundleName"] as? String ?? app.deletingPathExtension().lastPathComponent,
@@ -71,23 +66,8 @@ public struct InjectionEngine: Sendable {
         guard !request.injections.isEmpty else {
             throw LoadSideError("injection.inputs", "Add at least one DEB, dylib, or framework to inject.")
         }
-        guard request.ipa.isFileURL, try request.ipa.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true else {
-            throw LoadSideError("request.ipa", "The source IPA must be a regular local file.")
-        }
-        guard request.output.isFileURL, request.output.pathExtension.lowercased() == "ipa" else {
-            throw LoadSideError("request.output", "Choose a local output file ending in .ipa.")
-        }
-        guard !FileManager.default.fileExists(atPath: request.output.path) else {
-            throw LoadSideError("output.exists", "An output file already exists at this destination.", recovery: "Choose another output name. LoadSide never overwrites an existing export.")
-        }
-        for input in [request.ipa] + request.injections {
-            guard input.isFileURL, FileManager.default.isReadableFile(atPath: input.path) else {
-                throw LoadSideError("request.input", "Cannot read input \(input.lastPathComponent).")
-            }
-            guard input.resolvingSymlinksInPath() != request.output.resolvingSymlinksInPath() else {
-                throw LoadSideError("request.outputInput", "The output cannot replace a source file.")
-            }
-        }
+        try IPAExport.validatePaths(ipa: request.ipa, output: request.output)
+        try IPAExport.validateInputs([request.ipa] + request.injections, output: request.output)
     }
 
     private static func removeSignatures(in app: URL) async throws {

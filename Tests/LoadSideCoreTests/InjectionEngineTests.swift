@@ -32,7 +32,7 @@ final class InjectionEngineTests: XCTestCase {
         XCTAssertEqual(result.bundleIdentifier, "test.example.app")
         XCTAssertEqual(result.displayName, "Prepared")
         XCTAssertEqual(result.injectedLibraryCount, 1)
-        XCTAssertEqual(result.sha256, try SigningEngine.sha256(files.output))
+        XCTAssertEqual(result.sha256, try IPAExport.sha256(files.output))
         XCTAssertTrue(result.warnings.contains { $0.contains("UNSIGNED") && $0.contains("entitlements") })
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(result)) as? [String: Any])
         XCTAssertEqual(json["requiresSigning"] as? Bool, true)
@@ -112,18 +112,7 @@ final class InjectionEngineTests: XCTestCase {
 
     func testUnsignedDiagnosticTextInFilenameCannotHideMalformedSignature() async throws {
         let root = try BinaryFixtures.temporaryDirectory(); defer { try? FileManager.default.removeItem(at: root) }
-        var bytes = Array(BinaryFixtures.macho())
-        // A bounds-valid command with an invalid signature payload. codesign fails
-        // to remove it, including the attacker's app name in its diagnostic.
-        let signatureOffset = bytes.count
-        bytes += [UInt8](repeating: 0, count: 32)
-        BinaryFixtures.put32(2, at: 16, in: &bytes)
-        BinaryFixtures.put32(168, at: 20, in: &bytes)
-        BinaryFixtures.put32(0x1d, at: 184, in: &bytes)
-        BinaryFixtures.put32(16, at: 188, in: &bytes)
-        BinaryFixtures.put32(UInt32(signatureOffset), at: 192, in: &bytes)
-        BinaryFixtures.put32(32, at: 196, in: &bytes)
-        let malformed = Data(bytes)
+        let malformed = BinaryFixtures.machoWithMalformedSignature()
         XCTAssertTrue(try MachO.inspect(data: malformed).hasCodeSignature)
         let files = try inputs(in: root, executable: malformed, appName: "not signed at all.app")
         let original = try Data(contentsOf: files.ipa)
@@ -180,7 +169,7 @@ final class InjectionEngineTests: XCTestCase {
         _ = try await runner.run("/usr/bin/codesign", ["--force", "--sign", "-", "--timestamp=none", app.path])
         let source = root.appendingPathComponent("Signed.ipa"), output = root.appendingPathComponent("Prepared-unsigned.ipa")
         try Archive.createIPA(from: archive, to: source)
-        let sourceHash = try SigningEngine.sha256(source), libraryHash = try SigningEngine.sha256(library)
+        let sourceHash = try IPAExport.sha256(source), libraryHash = try IPAExport.sha256(library)
         let result = try await InjectionEngine().run(.init(ipa: source, injections: [library], output: output)) { _ in }
         XCTAssertTrue(result.requiresSigning)
         let extracted = root.appendingPathComponent("exported")
@@ -192,7 +181,7 @@ final class InjectionEngineTests: XCTestCase {
         }
         _ = try await runner.run("/usr/bin/codesign", ["--verify", "--strict", app.path])
         _ = try await runner.run("/usr/bin/codesign", ["--verify", "--strict", library.path])
-        XCTAssertEqual(try SigningEngine.sha256(source), sourceHash)
-        XCTAssertEqual(try SigningEngine.sha256(library), libraryHash)
+        XCTAssertEqual(try IPAExport.sha256(source), sourceHash)
+        XCTAssertEqual(try IPAExport.sha256(library), libraryHash)
     }
 }
