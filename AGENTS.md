@@ -8,6 +8,7 @@ LoadSide is a native macOS application and CLI for locally signing decrypted iOS
 - `LoadSideApp` is the macOS SwiftUI client. It presents real engine events; never simulate progress or successful output.
 - `LoadSideCLI` is an automation client of the same engine. Keep passwords out of command-line arguments and stored job records.
 - `CArchive` is a system module for Apple's libarchive. Avoid adding remote dependencies without a concrete need.
+- `CFileKeychain` contains the required legacy file-keychain lifecycle and trusted-application ACL calls. Keep its compatibility waiver local to that implementation; never substitute a shared identity destination or widen its fixed access policies to silence warnings.
 
 ## Required invariants
 

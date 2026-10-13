@@ -1,4 +1,5 @@
 import Foundation
+import Security
 import XCTest
 
 @testable import LoadSideCore
@@ -241,16 +242,42 @@ final class SavedSigningProfilesTests: XCTestCase {
         } catch { XCTAssertEqual((error as? LoadSideError)?.code, "savedProfile.corrupt") }
     }
     func testSystemKeychainGenericPasswordRoundTrip() throws {
-        let keychain = SigningProfileKeychain(service: "app.loadside.qa." + UUID().uuidString)
+        let service = "app.loadside.qa." + UUID().uuidString
+        let keychain = SigningProfileKeychain(service: service)
+        let otherService = SigningProfileKeychain(service: service + ".other")
         let id = UUID()
-        defer { try? keychain.delete(for: id) }
+        let otherID = UUID()
+        defer {
+            try? keychain.delete(for: id)
+            try? keychain.delete(for: otherID)
+            try? otherService.delete(for: id)
+        }
         let secret = UUID().uuidString
         try keychain.save(secret, for: id)
+        try keychain.save("other-profile-fixture", for: otherID)
+        try otherService.save("other-service-fixture", for: id)
         XCTAssertEqual(try keychain.load(for: id), secret)
-        try keychain.save(secret + "-updated", for: id)
-        XCTAssertEqual(try keychain.load(for: id), secret + "-updated")
-        try keychain.delete(for: id)
+        let reopened = SigningProfileKeychain(service: service)
+        try reopened.save(secret + "-updated", for: id)
+        XCTAssertEqual(try reopened.load(for: id), secret + "-updated")
+        // Existing classic-keychain records keep their service/account schema and
+        // update in place; no backend migration or duplicate record is introduced.
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
+            kSecAttrAccount as String: id.uuidString, kSecAttrSynchronizable as String: false,
+            kSecUseDataProtectionKeychain as String: false, kSecReturnAttributes as String: true,
+            kSecMatchLimit as String: kSecMatchLimitAll
+        ]
+        var result: CFTypeRef?
+        XCTAssertEqual(SecItemCopyMatching(query as CFDictionary, &result), errSecSuccess)
+        let records = try XCTUnwrap(result as? [[String: Any]])
+        XCTAssertEqual(records.count, 1)
+        XCTAssertEqual(records.first?[kSecAttrService as String] as? String, service)
+        XCTAssertEqual(records.first?[kSecAttrAccount as String] as? String, id.uuidString)
+        try reopened.delete(for: id)
         XCTAssertNil(try keychain.load(for: id))
+        XCTAssertEqual(try keychain.load(for: otherID), "other-profile-fixture")
+        XCTAssertEqual(try otherService.load(for: id), "other-service-fixture")
     }
 }
 

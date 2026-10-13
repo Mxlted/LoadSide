@@ -1,3 +1,4 @@
+import CFileKeychain
 import CryptoKit
 import Darwin
 import Foundation
@@ -50,11 +51,8 @@ public struct SigningProfileKeychain: SigningProfilePasswordStorage {
         // The classic macOS keychain supports unsandboxed/ad-hoc evaluation builds. Its ACL
         // restricts access to this app; synchronizable=false prevents iCloud synchronization.
         // Do not claim ThisDeviceOnly semantics: that accessibility class belongs to the DP keychain.
-        var caller: SecTrustedApplication?
-        try check(SecTrustedApplicationCreateFromPath(nil, &caller))
-        guard let caller else { throw LoadSideError("savedProfile.keychainACL", "Could not identify LoadSide for Keychain access.") }
         var access: SecAccess?
-        try check(SecAccessCreate("LoadSide saved signing password" as CFString, [caller] as CFArray, &access))
+        try check(LSFileKeychainCreatePasswordAccess(&access))
         guard let access else { throw LoadSideError("savedProfile.keychainACL", "Could not create a private Keychain access policy.") }
         values[kSecAttrAccess as String] = access
         values[kSecAttrLabel as String] = "LoadSide saved signing password"

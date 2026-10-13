@@ -4,6 +4,30 @@ import XCTest
 @testable import LoadSideCore
 
 final class CredentialTests: XCTestCase {
+    private struct KeychainConfiguration: Equatable {
+        let searchList: Data
+        let defaultKeychain: Data
+    }
+
+    private func keychainConfiguration(_ runner: ProcessRunner) async throws -> KeychainConfiguration {
+        let searchList = try await runner.run("/usr/bin/security", ["list-keychains", "-d", "user"])
+        let defaultKeychain = try await runner.run("/usr/bin/security", ["default-keychain", "-d", "user"])
+        return KeychainConfiguration(
+            searchList: searchList.stdout + searchList.stderr,
+            defaultKeychain: defaultKeychain.stdout + defaultKeychain.stderr)
+    }
+
+    private func findCertificate(_ name: String, in keychain: SecKeychain? = nil) -> OSStatus {
+        var query: [String: Any] = [
+            kSecClass as String: kSecClassCertificate, kSecAttrLabel as String: name,
+            kSecUseDataProtectionKeychain as String: false, kSecReturnAttributes as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+        if let keychain { query[kSecMatchSearchList as String] = [keychain] }
+        var result: CFTypeRef?
+        return SecItemCopyMatching(query as CFDictionary, &result)
+    }
+
     /// Synthetic self-signed identity tests isolation/import; it cannot authorize iOS installation.
     func testP12ImportsIntoDisposableKeychainAndValidatesMembership() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -14,13 +38,14 @@ final class CredentialTests: XCTestCase {
         let der = directory.appendingPathComponent("cert.der")
         let p12 = directory.appendingPathComponent("identity.p12")
         let config = directory.appendingPathComponent("openssl.cnf")
+        let certificateName = "LoadSide Test Identity \(UUID().uuidString)"
         try """
         [req]
         distinguished_name=dn
         x509_extensions=extensions
         prompt=no
         [dn]
-        CN=LoadSide Synthetic Test Identity
+        CN=\(certificateName)
         [extensions]
         basicConstraints=critical,CA:false
         keyUsage=critical,digitalSignature
@@ -36,12 +61,15 @@ final class CredentialTests: XCTestCase {
             "/usr/bin/openssl",
             ["pkcs12", "-export", "-inkey", key.path, "-in", cert.path, "-out", p12.path, "-passout", "pass:fixture-password"])
         let profile = try testProfile(certificate: Data(contentsOf: der))
-        let before = try await runner.run("/usr/bin/security", ["list-keychains", "-d", "user"])
+        let originalP12 = try Data(contentsOf: p12)
+        let before = try await keychainConfiguration(runner)
+        XCTAssertEqual(findCertificate(certificateName), errSecItemNotFound)
         var identity: SigningIdentity? = try SigningIdentity(
             p12: p12, password: "fixture-password", workspace: directory, profiles: [profile])
         let keychainPath = try XCTUnwrap(identity?.keychainURL)
-        XCTAssertEqual(identity?.name, "LoadSide Synthetic Test Identity")
+        XCTAssertEqual(identity?.name, certificateName)
         XCTAssertTrue(FileManager.default.fileExists(atPath: keychainPath.path))
+        XCTAssertEqual(findCertificate(certificateName, in: try XCTUnwrap(identity?.keychain)), errSecSuccess)
         let binary = directory.appendingPathComponent("signed-echo")
         try FileManager.default.copyItem(at: URL(fileURLWithPath: "/bin/echo"), to: binary)
         let claims = directory.appendingPathComponent("entitlements.plist")
@@ -60,17 +88,24 @@ final class CredentialTests: XCTestCase {
         XCTAssertEqual(
             try PropertyListSerialization.propertyList(from: signedClaims.stdout, format: nil) as? NSDictionary,
             expectedClaims as NSDictionary)
-        let during = try await runner.run("/usr/bin/security", ["list-keychains", "-d", "user"])
-        XCTAssertEqual(before.stdout, during.stdout, "Import must not change the user's keychain search list")
+        let during = try await keychainConfiguration(runner)
+        XCTAssertEqual(before, during, "Import must not change the user's default keychain or search list")
+        XCTAssertEqual(findCertificate(certificateName), errSecItemNotFound, "The fixture certificate must stay in its private keychain")
         identity = nil
         XCTAssertFalse(FileManager.default.fileExists(atPath: keychainPath.path))
-        let after = try await runner.run("/usr/bin/security", ["list-keychains", "-d", "user"])
-        XCTAssertEqual(before.stdout, after.stdout)
+        let after = try await keychainConfiguration(runner)
+        XCTAssertEqual(before, after)
         XCTAssertThrowsError(try SigningIdentity(p12: p12, password: "wrong-password", workspace: directory, profiles: [profile]))
         XCTAssertFalse(FileManager.default.fileExists(atPath: keychainPath.path))
+        let afterWrongPassword = try await keychainConfiguration(runner)
+        XCTAssertEqual(before, afterWrongPassword)
         XCTAssertThrowsError(
             try SigningIdentity(
                 p12: p12, password: "fixture-password", workspace: directory, profiles: [testProfile(certificate: Data([0]))]))
         XCTAssertFalse(FileManager.default.fileExists(atPath: keychainPath.path))
+        let afterMismatch = try await keychainConfiguration(runner)
+        XCTAssertEqual(before, afterMismatch)
+        XCTAssertEqual(findCertificate(certificateName), errSecItemNotFound)
+        XCTAssertEqual(try Data(contentsOf: p12), originalP12, "Import and validation failures must never modify the source P12")
     }
 }

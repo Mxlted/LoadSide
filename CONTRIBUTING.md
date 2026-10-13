@@ -15,7 +15,7 @@ scripts/package.sh --local
 open dist/LoadSide.app
 ```
 
-Use `swift test --filter <TestClass>` for the area being changed, then run `scripts/check.sh` before submitting. The full check runs formatting, shell syntax, packaging guards, all test targets, an optimized build, SDK metadata verification, CLI smoke checks, and tracked-file hygiene. `--skip-build` skips **both tests and compilation** and requires existing release binaries; it is only for repeating smoke checks after a verified build.
+Use `swift test --filter <TestClass>` for the area being changed, then run `scripts/check.sh` before submitting. The full check runs formatting, shell syntax, packaging guards, all test targets, an optimized build, SDK metadata verification, CLI smoke checks, and tracked-file hygiene. Swift warnings and C deprecations are errors; the documented legacy Keychain waiver is confined to `CFileKeychain.c`. `--skip-build` skips **both tests and compilation** and requires existing release binaries; it is only for repeating smoke checks after a verified build.
 
 Interactive agent workflows use `xcodebuildmcp swift-package build` and `test` when available; inspect their `--help` first and pass this checkout as `--package-path`. Repository scripts use Swift directly so CI does not need XcodeBuildMCP. Do not run competing builds against the same build directory.
 
@@ -30,7 +30,7 @@ The release scripts deliberately forward the selected macOS SDK to both compilat
 | Archive safety and final output commit | `Archive`, `IPAExport` |
 | Injection and unsigned exports | `Injection`, `InjectionEngine`, `MachO` |
 | Profile authorization and identity | `ProvisioningProfile`, `EntitlementResolver`, `ExtensionSigning` |
-| Saved credentials | `SavedSigningProfileStore`, `SigningIdentity` |
+| Saved credentials and private keychains | `SavedSigningProfileStore`, `SigningIdentity`, `CFileKeychain` |
 | Shared library and browser downloads | `LocalAppLibrary`, `LocalAppServer`, `LocalHTTP` |
 | HTTPS helper lifecycle | `CloudflaredInstaller`, `LocalAppTunnel` |
 | Desktop state and persistence | `WorkspaceModel`, `LocalLibraryModel`, `JobRecord`, `JobHistoryStore` |

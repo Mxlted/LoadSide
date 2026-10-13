@@ -1,9 +1,10 @@
+import CFileKeychain
 import CryptoKit
 import Foundation
 import Security
 
-/// Legacy keychain APIs are required by the system codesign tool. This keychain is
-/// private, never added to the search list/default keychain, and deleted after a job.
+/// Owns the disposable file keychain passed explicitly to the system codesign tool.
+/// CFileKeychain contains the required legacy lifecycle and trusted-application APIs.
 final class SigningIdentity {
     let keychain: SecKeychain
     let keychainURL: URL
@@ -27,26 +28,23 @@ final class SigningIdentity {
         defer { secret.resetBytes(in: secret.startIndex..<secret.endIndex) }
         try secret.withUnsafeBytes { bytes in
             try securityCheck(
-                SecKeychainCreate(keychainURL.path, UInt32(bytes.count), bytes.baseAddress, false, nil, &created),
+                LSFileKeychainCreate(keychainURL.path, UInt32(bytes.count), bytes.baseAddress!, &created),
                 "create private signing keychain")
         }
         guard let created else { throw LoadSideError("keychain.create", "Could not create a temporary signing keychain.") }
         do {
             try secret.withUnsafeBytes {
-                try securityCheck(SecKeychainUnlock(created, UInt32($0.count), $0.baseAddress, true), "unlock private signing keychain")
+                try securityCheck(LSFileKeychainUnlock(created, UInt32($0.count), $0.baseAddress!), "unlock private signing keychain")
             }
-            var codesign: SecTrustedApplication?
-            var caller: SecTrustedApplication?
-            try securityCheck(SecTrustedApplicationCreateFromPath("/usr/bin/codesign", &codesign), "authorize codesign")
-            try securityCheck(SecTrustedApplicationCreateFromPath(nil, &caller), "authorize the signing process")
             var access: SecAccess?
-            try securityCheck(
-                SecAccessCreate("LoadSide temporary signing key" as CFString, [codesign!, caller!] as CFArray, &access),
-                "create signing key access policy")
+            try securityCheck(LSFileKeychainCreateSigningAccess(&access), "create signing key access policy")
+            guard let access else {
+                throw LoadSideError("keychain.access", "Could not create a private signing key access policy.")
+            }
             let options: [String: Any] = [
                 kSecImportExportPassphrase as String: password,
                 kSecImportExportKeychain as String: created,
-                kSecImportExportAccess as String: access!
+                kSecImportExportAccess as String: access
             ]
             var items: CFArray?
             try securityCheck(
@@ -80,18 +78,17 @@ final class SigningIdentity {
             self.fingerprint = Insecure.SHA1.hash(data: match.1).hex
             self.name = SecCertificateCopySubjectSummary(match.0) as String? ?? fingerprint
         } catch {
-            SecKeychainDelete(created)
+            LSFileKeychainDelete(created)
             throw error
         }
     }
 
-    deinit { SecKeychainDelete(keychain) }
+    deinit { LSFileKeychainDelete(keychain) }
 
     static func validateDates(_ certificate: SecCertificate, now: Date = Date()) throws {
-        var error: Unmanaged<CFError>?
         guard
             let values = SecCertificateCopyValues(
-                certificate, [kSecOIDX509V1ValidityNotBefore, kSecOIDX509V1ValidityNotAfter] as CFArray, &error) as? [String: Any]
+                certificate, [kSecOIDX509V1ValidityNotBefore, kSecOIDX509V1ValidityNotAfter] as CFArray, nil) as? [String: Any]
         else {
             throw LoadSideError("certificate.validity", "Could not read certificate validity dates.")
         }

@@ -4,6 +4,12 @@ Target: **0.1.0-rc.2**, local evaluation release candidate. This file records ev
 
 The [RC.2 artifact qualification record](QUALIFICATION-0.1.0-rc.2.md) identifies the historical RC.2 app, source commit, checksums and remaining release gates. Qualification records below describe the builds tested at that time; their old artifact paths are historical and are superseded by the canonical local package.
 
+## Keychain compatibility and isolation — 2026-10-13
+
+- Confined the required legacy file-Keychain lifecycle and trusted-application ACL calls to `CFileKeychain`. Apple does not provide equivalent `SecItem` operations for disposable keychains used by `codesign`; the adapter has a documented, implementation-local deprecation waiver. Swift warnings and C deprecations elsewhere now fail repository checks. This is a compatibility boundary, not a storage-backend migration.
+- Preserved explicit per-job signing destinations, caller/codesign signing ACLs, caller-only saved-password ACLs, and existing saved-password service/account records. Strengthened tests prove the default keychain/search list stay unchanged, the generated identity remains outside default searches, failed imports clean up, source P12 bytes stay unchanged, and password updates/deletion remain scoped. Fixed an adjacent unused retained certificate-error allocation.
+- Independent security review found no blocking issues. All **11 focused credential/profile tests** passed without warnings, failures, or skips, including actual synthetic signing and native password-storage checks. The C adapter also passed a direct compiler check with extra warnings and deprecations treated as errors.
+
 ## Code quality and maintainability pass — 2026-10-13
 
 - Reviewed the engine, desktop app, CLI, sharing/helper lifecycle, tests, scripts, and developer documentation in coordinated parallel reviews. Retained the three Swift targets and their existing public APIs, signing policies, and persisted history schema.

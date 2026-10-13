@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Confine required legacy file-Keychain lifecycle and ACL APIs to a documented compatibility adapter, preserving temporary signing isolation and saved-password compatibility. Strengthen isolation/cleanup tests and reject new Swift warnings and C deprecations in repository checks.
+
 - Standardize owned Swift source formatting with the toolchain's formatter, enforce it in the repository checks, and add editor defaults. Expand the contributor source map/workflows and correct security documentation for optional local/Cloudflare sharing.
 
 - Extract desktop library state and history persistence from views/workspace coordination; remove unused workspace members and prevent credential edits during saved-profile operations. Add history compatibility tests.
