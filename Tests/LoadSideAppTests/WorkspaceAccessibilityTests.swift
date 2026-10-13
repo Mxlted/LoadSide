@@ -469,8 +469,11 @@ struct AccessibilityElement {
     var isSelected: Bool { (value as? NSNumber)?.boolValue == true }
     var hasSelectedTrait: Bool { object.isAccessibilitySelected?() ?? false }
     var children: [Any] {
-        (object.accessibilityChildren?() ?? []) + (object.accessibilityRows?() ?? [])
-            + (object.accessibilityVisibleChildren?() ?? []) + (object.accessibilityContents?() ?? [])
+        var result: [Any] = object.accessibilityChildren?() ?? []
+        result.append(contentsOf: object.accessibilityRows?() ?? [])
+        result.append(contentsOf: object.accessibilityVisibleChildren?() ?? [])
+        result.append(contentsOf: object.accessibilityContents?() ?? [])
+        return result
     }
     var frame: NSRect { object.accessibilityFrame?() ?? .zero }
     func press() -> Bool { object.accessibilityPerformPress?() ?? false }
