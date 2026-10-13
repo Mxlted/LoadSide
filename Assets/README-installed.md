@@ -13,6 +13,6 @@ Open LoadSide, choose an already decrypted IPA, import your PKCS#12 identity and
 
 The bundled command-line tool is at `LoadSide.app/Contents/Helpers/loadside`. Run it with `--help` for usage. Passwords are supplied through standard input or a protected file, never as a command-line value.
 
-`BuildInfo.txt` in this directory records the version, source provenance, build type, and toolchain. If packaging skipped compilation, binary source and original compiler are explicitly unverified. A **local** build is ad-hoc signed and is not notarized or approved for public release. See the included `LICENSE` and `ThirdParty/` notices for licensing.
+`BuildInfo.txt` in this directory records the version, source provenance, build type, and toolchain. If packaging skipped compilation, binary source and original compiler are explicitly unverified. A **local** build is ad-hoc signed and is not notarized or qualified for production use. See the included `LICENSE` and `ThirdParty/` notices for licensing.
 
 Review diagnostics before sharing them. Do not attach certificates, private keys, passwords, provisioning profiles, or proprietary archives to public issues.

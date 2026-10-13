@@ -2,6 +2,10 @@
 
 Read [engineering invariants](AGENTS.md) and [architecture](docs/ARCHITECTURE.md) before changing the signing pipeline. An Apple Silicon Mac running macOS 14+ and Xcode with Swift 6+ are required. Run the toolchain natively; Intel Macs and Rosetta sessions are unsupported. Open `Package.swift` in Xcode; there is no generated Xcode project to maintain and no third-party Swift package to install.
 
+## Branches and pull requests
+
+Create a topic branch and open a pull request against `main`. Main requires a passing, up-to-date `verify` check and resolved review conversations, including for administrators. No reviewer approval is required for solo maintenance. Squash merge a coherent change after validation; force pushes and deletion of `main` are blocked.
+
 ## Development loop
 
 From the repository root:

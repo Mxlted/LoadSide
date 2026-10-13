@@ -153,7 +153,7 @@ struct LoadSideCLI {
     static func writeError(_ text: String) { FileHandle.standardError.write(Data(text.utf8)) }
 
     static let help = """
-        LoadSide — local IPA signing and injection for macOS
+        LoadSide: local IPA signing and injection for macOS
 
         Usage:
           loadside sign --ipa APP.ipa --p12 IDENTITY.p12 --profile APP.mobileprovision --output SIGNED.ipa [options]

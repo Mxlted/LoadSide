@@ -36,19 +36,11 @@ Bring an IPA and your signing files, review the signing plan, and export. LoadSi
 
 ## Get LoadSide
 
-**Current candidate: 0.1.0-rc.3, for local evaluation.** A production download has not been published. Device installation/runtime, minimum-macOS execution, Developer ID signing, and notarization still require [release qualification](docs/STATUS.md).
+**[Download LoadSide 0.1.0-rc.3](https://github.com/Mxlted/LoadSide/releases/tag/v0.1.0-rc.3)** for **Apple Silicon and macOS 14+**.
 
-On an **Apple Silicon Mac with macOS 14+** and **Xcode with Swift 6+**, build a local copy:
+Open the **DMG**, drag **LoadSide** to **Applications**, then launch it from there. A ZIP is also available, and both include the CLI. Automatic HTTPS requires macOS 15+.
 
-```sh
-git clone https://github.com/Mxlted/LoadSide.git
-cd LoadSide
-scripts/check.sh
-scripts/package.sh --local
-open dist/LoadSide.app
-```
-
-This produces an ad-hoc signed evaluation app and the `dist/loadside` CLI. See [installation](docs/INSTALLATION.md) for packaging details, or follow [Releases](https://github.com/Mxlted/LoadSide/releases) for future qualified downloads. Automatic HTTPS requires macOS 15+.
+This is an **experimental prerelease**, ad-hoc signed and not notarized. macOS may ask for [per-app approval](docs/INSTALLATION.md#first-launch). Device compatibility and full macOS 14 qualification remain incomplete. See [installation](docs/INSTALLATION.md) for checksums and source builds, and [verification status](docs/STATUS.md) for test coverage.
 
 ## Your first export
 

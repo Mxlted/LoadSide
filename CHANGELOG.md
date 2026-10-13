@@ -2,11 +2,13 @@
 
 ## Unreleased
 
-## 0.1.0-rc.3 — local evaluation candidate
+## 0.1.0-rc.3 (2026-10-13)
 
-This candidate remains unqualified for a public binary release. It targets Apple Silicon only; historical RC.1/RC.2 universal artifacts do not indicate current Intel support.
+First public experimental prerelease, ad-hoc signed and not notarized. Production qualification remains incomplete. It targets Apple Silicon only; historical RC.1/RC.2 universal artifacts do not indicate current Intel support.
 
 ### Release preparation and reliability
+
+- Add a drag-to-Applications DMG alongside the ZIP, with read-only mount verification, bundled CLI checks, and SHA-256 checksums. Simplify release notes and document first-launch approval.
 
 - Reject case- or Unicode-colliding archive parent paths, including implicitly created directories, before extraction or export.
 - Keep strict entitlement checks type-safe for malformed boolean claims; compatible removal remains explicit and diagnostic.
@@ -69,7 +71,7 @@ This candidate remains unqualified for a public binary release. It targets Apple
 - Show missing extension IDs and supplied profile patterns with a direct Add extension profiles action. Resolve the main ID unambiguously when profiles also cover actual nested bundles.
 - Fix cancellation/timeout cleanup hanging in Foundation's detached subprocess wait; wait for the termination callback before deleting temporary work.
 
-## 0.1.0-rc.2 — 2026-10-12
+## 0.1.0-rc.2: 2026-10-12
 
 - Resolve a unique certificate-compatible app identifier automatically, with an explicit Preserve policy and manual override. Explain profile authorization instead of failing with a generic main-app mismatch.
 - Inspect app identifiers and retained extensions before export; expose changes and missing extension profiles in the signing plan.
@@ -78,7 +80,7 @@ This candidate remains unqualified for a public binary release. It targets Apple
 - Discover DEB resource bundles nested under package-specific Application Support directories and embed them at the app root. Reject resource collisions and hidden executable content before mutation.
 - Test the actual supplied Cercube DEB against the decrypted IPA in `deb_test`; record detailed verification and remaining device-runtime limits in the delivery status.
 
-## 0.1.0-rc.1 — 2026-10-12
+## 0.1.0-rc.1: 2026-10-12
 
 Initial native macOS release candidate. Not yet qualified for public production distribution.
 
