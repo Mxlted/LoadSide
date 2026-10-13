@@ -12,6 +12,8 @@ concurrency:
 jobs:
   verify:
     runs-on: macos-15 # Apple Silicon
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -19,7 +21,10 @@ jobs:
           persist-credentials: false
           fetch-depth: 0 # Bundle build numbers use the complete commit count.
       - name: Show toolchain
-        run: swift --version
+        run: |
+          xcodebuild -version
+          swift --version
+          swift format --version
       - name: Test, build and smoke-test CLI
         run: scripts/check.sh
       - name: Package arm64 local build

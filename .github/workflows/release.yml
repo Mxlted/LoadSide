@@ -20,12 +20,19 @@ jobs:
     # Public source runs on an ephemeral hosted runner. Production credentials
     # remain on the trusted release Mac and are never available to this workflow.
     runs-on: macos-15
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
           fetch-depth: 0
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+          swift format --version
       - name: Validate qualification reference and exact commit
         id: version
         shell: bash
