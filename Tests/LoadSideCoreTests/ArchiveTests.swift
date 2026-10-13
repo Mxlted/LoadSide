@@ -60,6 +60,38 @@ final class ArchiveTests: XCTestCase {
             XCTAssertThrowsError(try Archive.extract(archive, to: root.appendingPathComponent("out")))
         }
     }
+    func testImplicitParentCaseAndNormalizationCollisionsAreRejected() throws {
+        let cases: [[ArchiveFixtures.Entry]] = [
+            [.init(path: "Payload/App.app/first"), .init(path: "payload/App.app/second")],
+            [.init(path: "Payload/App.app/first"), .init(path: "Payload/app.app", type: 53)],
+            [.init(path: "Payload/Caf\u{00e9}.app/first"), .init(path: "Payload/Cafe\u{0301}.app/second")]
+        ]
+        for entries in cases {
+            let root = try BinaryFixtures.temporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: root) }
+            let archive = root.appendingPathComponent("test.tar")
+            try ArchiveFixtures.tar(entries).write(to: archive)
+            XCTAssertThrowsError(try Archive.extract(archive, to: root.appendingPathComponent("out"))) {
+                XCTAssertEqual(($0 as? LoadSideError)?.code, "archive.duplicate")
+            }
+        }
+    }
+
+    func testExplicitDirectoryCanFollowItsImplicitParentCreation() throws {
+        let root = try BinaryFixtures.temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let archive = root.appendingPathComponent("test.tar")
+        let output = root.appendingPathComponent("out")
+        try ArchiveFixtures.tar([
+            .init(path: "Payload/App.app/first", data: Data("first".utf8)),
+            .init(path: "Payload/App.app", type: 53),
+            .init(path: "Payload/App.app/second", data: Data("second".utf8))
+        ]).write(to: archive)
+        try Archive.extract(archive, to: output)
+        XCTAssertEqual(try Data(contentsOf: output.appendingPathComponent("Payload/App.app/first")), Data("first".utf8))
+        XCTAssertEqual(try Data(contentsOf: output.appendingPathComponent("Payload/App.app/second")), Data("second".utf8))
+    }
+
     func testLimitsAndNonEmptyDestination() throws {
         let root = try BinaryFixtures.temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }

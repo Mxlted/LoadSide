@@ -65,17 +65,9 @@ public enum MachO {
     }
 
     private static func readFile(_ url: URL) throws -> Data {
-        let values = try url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey])
-        let size = values.fileSize ?? 0
-        let maximum = 512 * 1_024 * 1_024
-        guard values.isRegularFile == true, size <= maximum else {
-            throw LoadSideError("macho.limit", "Mach-O input must be a regular file no larger than 512 MiB: \(url.lastPathComponent)")
-        }
-        let handle = try FileHandle(forReadingFrom: url)
-        defer { try? handle.close() }
-        let data = try handle.read(upToCount: maximum + 1) ?? Data()
-        guard data.count <= maximum else { throw LoadSideError("macho.limit", "Mach-O input grew beyond the inspection limit.") }
-        return data
+        try BoundedFile.read(
+            url, maximumBytes: 512 * 1_024 * 1_024,
+            invalid: LoadSideError("macho.limit", "Mach-O input must be a regular file no larger than 512 MiB: \(url.lastPathComponent)"))
     }
     private static func edit(_ url: URL, replacements: [String: String], installName: String?, addedDependency: String?) throws {
         try Task.checkCancellation()

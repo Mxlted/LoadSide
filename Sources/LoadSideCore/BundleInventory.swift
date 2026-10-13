@@ -186,10 +186,12 @@ enum BundleInventory {
     }
 
     static func readInfo(_ plist: URL) throws -> [String: Any] {
-        guard (try plist.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? Int.max) <= 16 * 1_024 * 1_024 else {
-            throw LoadSideError("bundle.infoSize", "\(plist.lastPathComponent) exceeds the 16 MB metadata limit.")
-        }
-        guard let info = try PropertyListSerialization.propertyList(from: Data(contentsOf: plist), format: nil) as? [String: Any] else {
+        // Extracted framework layouts can link Info.plist within the validated
+        // archive. The opened target must still be a bounded regular file.
+        let data = try BoundedFile.read(
+            plist, maximumBytes: 16 * 1_024 * 1_024, followingSymlinks: true,
+            invalid: LoadSideError("bundle.infoSize", "\(plist.lastPathComponent) must be a regular file no larger than 16 MiB."))
+        guard let info = try PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any] else {
             throw LoadSideError("bundle.info", "Invalid bundle metadata in \(plist.lastPathComponent).")
         }
         return info

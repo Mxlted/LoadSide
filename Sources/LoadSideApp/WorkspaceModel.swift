@@ -19,7 +19,14 @@ final class WorkspaceModel: ObservableObject {
     let localLibrary: LocalLibraryModel
     let disclosurePreferences: DisclosurePreferences
     @Published var ipa: URL? { didSet { refreshIPAInspection() } }
-    @Published var certificate: URL? { didSet { if !applyingSavedSelection { invalidateSavedSelection() } } }
+    @Published var certificate: URL? {
+        didSet {
+            // A session password belongs to the selected identity. Never carry it
+            // into a different certificate or a later save-profile operation.
+            if certificate != oldValue { password = "" }
+            if !applyingSavedSelection { invalidateSavedSelection() }
+        }
+    }
     @Published var password = ""
     @Published var profiles: [URL] = [] {
         didSet {

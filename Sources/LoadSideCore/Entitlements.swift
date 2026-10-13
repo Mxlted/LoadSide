@@ -46,10 +46,10 @@ enum EntitlementResolver {
         }
         // Never grant debugger access that the source did not request. A false
         // claim can be omitted; distribution must shed an existing true claim.
-        if let requestedDebug = result["get-task-allow"] as? Bool {
-            if !requestedDebug { result.removeValue(forKey: "get-task-allow") }
-            // True is validated by the same strict/compatible rules as every
-            // other capability below. No privilege is silently granted/dropped.
+        if let requestedDebug = result["get-task-allow"], isAllowed(requestedDebug, by: false) {
+            // Use the same plist type check as authorization. NSNumber(0) can
+            // bridge to Bool, but a malformed integer must not bypass policy.
+            result.removeValue(forKey: "get-task-allow")
         }
         // Report all known approval-required omissions before ordinary strict
         // validation can throw, so failed jobs retain these diagnostics too.
@@ -81,10 +81,6 @@ enum EntitlementResolver {
             guard let value = result[key] else { continue }
             let authorized = profile.entitlements[key].map { isAuthorized(value, by: $0, entitlement: key) } ?? false
             if authorized { continue }
-            if key == "get-task-allow", value as? Bool == false, profile.entitlements[key] == nil {
-                result.removeValue(forKey: key)
-                continue
-            }
             if policy == .compatible, !["application-identifier", "com.apple.developer.team-identifier"].contains(key) {
                 result.removeValue(forKey: key)
                 warn("Removed unsupported entitlement \(key) from \(bundleIdentifier). Features using it may stop working.")

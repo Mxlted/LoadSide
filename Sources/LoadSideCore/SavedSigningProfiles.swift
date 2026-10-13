@@ -347,15 +347,9 @@ public actor SavedSigningProfileStore {
         }
     }
     private func boundedFile(_ url: URL, maximum: Int = 16 * 1_024 * 1_024) throws -> Data {
-        let values = try url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey])
-        guard url.isFileURL, values.isRegularFile == true, values.isSymbolicLink != true, let size = values.fileSize, size > 0,
-            size <= maximum
-        else { throw corrupt("A signing-profile file is missing, unsafe, empty, or too large.") }
-        let handle = try FileHandle(forReadingFrom: url)
-        defer { try? handle.close() }
-        let data = try handle.read(upToCount: maximum + 1) ?? Data()
-        guard data.count <= maximum else { throw corrupt("A signing-profile file exceeds its size limit.") }
-        return data
+        try BoundedFile.read(
+            url, maximumBytes: maximum, minimumBytes: 1,
+            invalid: corrupt("A signing-profile file is missing, unsafe, empty, or too large."))
     }
     private func readIndex() throws -> Index {
         let url = root.appendingPathComponent("index.json")

@@ -231,6 +231,23 @@ final class EntitlementTests: XCTestCase {
         XCTAssertTrue(result.warnings.contains { $0.contains("get-task-allow") })
     }
 
+    func testIntegerDebuggerClaimCannotBypassStrictPolicyAsFalseBoolean() throws {
+        let requested = ["get-task-allow": NSNumber(value: 0)]
+        for profile in [try testProfile(), try testProfile(extras: ["get-task-allow": false])] {
+            XCTAssertThrowsError(
+                try EntitlementResolver.resolve(
+                    requested: requested, profile: profile, bundleIdentifier: "com.example.app", policy: .strict)
+            ) {
+                XCTAssertEqual(($0 as? LoadSideError)?.code, "entitlements.unsupported")
+            }
+            let compatible = try EntitlementResolver.resolve(
+                requested: requested, profile: profile, bundleIdentifier: "com.example.app", policy: .compatible)
+            XCTAssertNil(compatible.values["get-task-allow"])
+            XCTAssertEqual(compatible.warnings.count, 1)
+            XCTAssertTrue(compatible.warnings[0].contains("get-task-allow"))
+        }
+    }
+
     func testUnsignedPlistCannotMasqueradeAsTrustedProfile() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)

@@ -13,10 +13,9 @@ final class SigningIdentity {
     let name: String
 
     init(p12: URL, password: String, workspace: URL, profiles: [ProvisioningProfile]) throws {
-        let size = try p12.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey])
-        guard size.isRegularFile == true, (size.fileSize ?? 0) <= 16 * 1_024 * 1_024 else {
-            throw LoadSideError("certificate.size", "The P12 must be a regular file under 16 MB.")
-        }
+        let data = try BoundedFile.read(
+            p12, maximumBytes: 16 * 1_024 * 1_024,
+            invalid: LoadSideError("certificate.size", "The P12 must be a regular file no larger than 16 MiB."))
         let keychainURL = workspace.appendingPathComponent("signing.keychain-db")
         var created: SecKeychain?
         // Only a random per-job keychain password is used. Neither password enters argv.
@@ -48,7 +47,7 @@ final class SigningIdentity {
             ]
             var items: CFArray?
             try securityCheck(
-                SecPKCS12Import(try Data(contentsOf: p12) as CFData, options as CFDictionary, &items), "import the P12 (check its password)"
+                SecPKCS12Import(data as CFData, options as CFDictionary, &items), "import the P12 (check its password)"
             )
             let dictionaries = items as? [[String: Any]] ?? []
             var matches: [(SecCertificate, Data)] = []

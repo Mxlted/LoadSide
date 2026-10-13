@@ -26,11 +26,9 @@ public struct ProvisioningProfile: @unchecked Sendable {
     var appIdentifierPrefix: String { String(applicationIdentifier.prefix { $0 != "." }) }
 
     public static func inspect(_ url: URL) throws -> ProvisioningProfile {
-        let values = try url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey])
-        guard values.isRegularFile == true, (values.fileSize ?? 0) <= 16 * 1_024 * 1_024 else {
-            throw LoadSideError("profile.size", "The provisioning profile must be a regular file under 16 MB.")
-        }
-        let data = try Data(contentsOf: url)
+        let data = try BoundedFile.read(
+            url, maximumBytes: 16 * 1_024 * 1_024,
+            invalid: LoadSideError("profile.size", "The provisioning profile must be a regular file no larger than 16 MiB."))
         return try ProvisioningProfile(url: url, payload: decodeVerifiedCMS(data), data: data)
     }
 

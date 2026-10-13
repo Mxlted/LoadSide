@@ -59,7 +59,7 @@ public enum Archive {
         guard archive_read_open_filename(reader, source.path, 64 * 1024) == ARCHIVE_OK else { throw failure(reader, "open") }
         let compressed = (try? source.resourceValues(forKeys: [.fileSizeKey]).fileSize).map(Int64.init) ?? 0
         var entry: OpaquePointer?
-        var names = Set<String>()
+        var paths = PathRegistry()
         var entries = 0
         var total: Int64 = 0
         var links: [(URL, String)] = []
@@ -79,10 +79,7 @@ public enum Archive {
             }
             let name = try safePath(rawName)
             if name.isEmpty { continue }
-            let key = name.precomposedStringWithCanonicalMapping.lowercased()
-            guard names.insert(key).inserted else {
-                throw LoadSideError("archive.duplicate", "Archive contains a duplicate or case-colliding path: \(name)")
-            }
+            try paths.insert(name)
             let target = root.appendingPathComponent(name)
             try ensureParents(of: target, root: root)
             guard archive_entry_hardlink(entry) == nil else {
@@ -213,11 +210,13 @@ public enum Archive {
             names.append(file.pathComponents.suffix(enumerator.level).joined(separator: "/"))
         }
         if let enumerationError { throw enumerationError }
+        var paths = PathRegistry()
         for name in names.sorted() {
             let file = root.appendingPathComponent(name)
             try Task.checkCancellation()
             let values = try file.resourceValues(forKeys: [.isSymbolicLinkKey, .isDirectoryKey, .isRegularFileKey, .fileSizeKey])
             _ = try safePath(name)
+            try paths.insert(name)
             guard let entry = archive_entry_new() else { throw LoadSideError("archive.memory", "Unable to allocate ZIP entry.") }
             defer { archive_entry_free(entry) }
             archive_entry_set_pathname(entry, name)
@@ -265,6 +264,32 @@ public enum Archive {
         }
         defer { free(resolved) }
         return String(cString: resolved)
+    }
+
+    /// Track implicit parents as well as explicit entries so filesystem case or
+    /// Unicode normalization cannot merge distinct archive directory spellings.
+    private struct PathRegistry {
+        private var entries = Set<String>()
+        private var spellings: [String: String] = [:]
+
+        mutating func insert(_ name: String) throws {
+            var path = ""
+            for component in name.split(separator: "/") {
+                path += path.isEmpty ? String(component) : "/" + component
+                let key = path.precomposedStringWithCanonicalMapping.lowercased()
+                if let existing = spellings[key], !existing.utf8.elementsEqual(path.utf8) {
+                    throw duplicate(name)
+                }
+                spellings[key] = path
+            }
+            guard entries.insert(name.precomposedStringWithCanonicalMapping.lowercased()).inserted else {
+                throw duplicate(name)
+            }
+        }
+
+        private func duplicate(_ name: String) -> LoadSideError {
+            LoadSideError("archive.duplicate", "Archive contains a duplicate or case-colliding path: \(name)")
+        }
     }
 
     /// Never register a filter that can fall back to executing a decompression helper.

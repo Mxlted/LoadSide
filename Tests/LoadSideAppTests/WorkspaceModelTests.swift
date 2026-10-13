@@ -61,6 +61,44 @@ final class WorkspaceModelTests: XCTestCase {
     }
 
     @MainActor
+    func testCertificateReplacementAndRemovalClearOnlyThePreviousSessionPassword() async throws {
+        let (model, root) = try await makeWorkspace()
+        let original = root.appendingPathComponent("original.p12")
+        let replacement = root.appendingPathComponent("replacement.p12")
+        model.certificate = original
+        model.password = "public-session-fixture"
+
+        model.certificate = original
+        XCTAssertEqual(model.password, "public-session-fixture", "Reselecting the same identity should preserve its password")
+
+        model.certificate = replacement
+        XCTAssertTrue(model.password.isEmpty, "A different identity must not inherit the previous certificate's password")
+
+        model.password = "replacement-session-fixture"
+        model.certificate = nil
+        XCTAssertTrue(model.password.isEmpty, "Removing the identity must also remove its session password")
+    }
+
+    @MainActor
+    func testApplyingSavedSelectionUsesOnlyItsOwnPassword() async throws {
+        let (model, root) = try await makeWorkspace()
+        model.certificate = root.appendingPathComponent("previous.p12")
+        model.password = "previous-session-fixture"
+        let selection = SavedSigningProfileSelection(
+            profile: SavedSigningProfile(
+                id: UUID(), name: "Synthetic selection", createdAt: Date(), profileCount: 0,
+                remembersPassword: true, expiresAt: Date().addingTimeInterval(60)),
+            certificate: root.appendingPathComponent("saved.p12"), provisioningProfiles: [],
+            password: "selected-session-fixture", passwordNotice: nil)
+
+        model.applySavedSelection(selection)
+
+        XCTAssertEqual(model.certificate, selection.certificate)
+        XCTAssertEqual(model.password, "selected-session-fixture")
+        XCTAssertEqual(model.selectedSigningProfileID, selection.profile.id)
+    }
+
+    @MainActor
     func testRunningJobPreventsResetInputReplacementAndPolicyChanges() async throws {
         let (model, root) = try await makeWorkspace()
         let original = root.appendingPathComponent("original.p12")

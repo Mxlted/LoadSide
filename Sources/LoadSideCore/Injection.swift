@@ -263,17 +263,10 @@ public enum Injection {
     }
 
     private static func readPlist(_ url: URL) throws -> [String: Any] {
-        let values = try url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey, .isSymbolicLinkKey])
-        let size = values.fileSize ?? 0
-        let maximum = 16 * 1_024 * 1_024
-        guard values.isRegularFile == true, values.isSymbolicLink != true, size > 0, size <= maximum else {
-            throw LoadSideError(
-                "injection.plistLimit", "Property list must be a regular file no larger than 16 MiB: \(url.lastPathComponent)")
-        }
-        let handle = try FileHandle(forReadingFrom: url)
-        defer { try? handle.close() }
-        let data = try handle.read(upToCount: maximum + 1) ?? Data()
-        guard data.count <= maximum else { throw LoadSideError("injection.plistLimit", "Property list grew beyond the 16 MiB limit.") }
+        let data = try BoundedFile.read(
+            url, maximumBytes: 16 * 1_024 * 1_024, minimumBytes: 1,
+            invalid: LoadSideError(
+                "injection.plistLimit", "Property list must be a regular file no larger than 16 MiB: \(url.lastPathComponent)"))
         guard let result = try PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any] else {
             throw LoadSideError("injection.plist", "Invalid dictionary property list: \(url.lastPathComponent)")
         }
