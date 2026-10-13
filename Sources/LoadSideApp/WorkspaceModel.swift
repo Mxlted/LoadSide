@@ -12,6 +12,8 @@ enum ProfileInspection: Sendable {
 
 @MainActor
 final class WorkspaceModel: ObservableObject {
+    typealias ProfileInspector = @Sendable (URL) async throws -> ProvisioningProfile
+
     @Published var section: AppSection = .workspace
     @Published var jobMode: JobMode = .sign
     let localLibrary: LocalLibraryModel
@@ -20,7 +22,7 @@ final class WorkspaceModel: ObservableObject {
     @Published var password = ""
     @Published var profiles: [URL] = [] {
         didSet {
-            refreshProfiles()
+            refreshProfiles(reinspect: applyingSavedSelection)
             if !applyingSavedSelection { invalidateSavedSelection() }
         }
     }
@@ -55,6 +57,8 @@ final class WorkspaceModel: ObservableObject {
     @Published var showAdvanced = false
     private var task: Task<Void, Never>?
     private var inspectionTokens: [URL: UUID] = [:]
+    private var profileInspectionTasks: [URL: Task<Void, Never>] = [:]
+    private let profileInspector: ProfileInspector
     private var ipaInspectionToken = UUID()
     private var ipaInspectionTask: Task<Void, Never>?
     private var savedSelectionToken = UUID()
@@ -66,11 +70,13 @@ final class WorkspaceModel: ObservableObject {
     init(
         historyStore: JobHistoryStore = JobHistoryStore(),
         savedProfileStore: SavedSigningProfileStore = SavedSigningProfileStore(),
-        localLibrary: LocalLibraryModel = LocalLibraryModel()
+        localLibrary: LocalLibraryModel = LocalLibraryModel(),
+        profileInspector: @escaping ProfileInspector = { try ProvisioningProfile.inspect($0) }
     ) {
         self.historyStore = historyStore
         self.savedProfileStore = savedProfileStore
         self.localLibrary = localLibrary
+        self.profileInspector = profileInspector
         loadHistory()
         initialLoadTask = Task { [weak self] in await self?.loadSavedSigningProfiles(restoreSelection: true) }
     }
@@ -78,7 +84,17 @@ final class WorkspaceModel: ObservableObject {
     /// Wait for this instance's startup work without scheduling duplicate loads.
     func waitForInitialLoad() async {
         await initialLoadTask?.value
+        await waitForProfileInspections()
         await localLibrary.waitForInitialLoad()
+    }
+
+    func waitForProfileInspections() async {
+        let pending = Array(profileInspectionTasks.values)
+        for inspection in pending { await inspection.value }
+    }
+
+    deinit {
+        for inspection in profileInspectionTasks.values { inspection.cancel() }
     }
 
     // MARK: - Input readiness
@@ -153,31 +169,58 @@ final class WorkspaceModel: ObservableObject {
 
     // MARK: - Input inspection and signing plan
 
-    func inspectProfile(_ url: URL) {
+    @discardableResult
+    func inspectProfile(_ url: URL) -> Task<Void, Never> {
+        profileInspectionTasks[url]?.cancel()
         let token = UUID()
         inspectionTokens[url] = token
         profileInspections[url] = .inspecting
-        Task { [weak self] in
-            let inspection = await Task.detached(priority: .userInitiated) { () -> ProfileInspection in
-                do {
-                    return .valid(try ProvisioningProfile.inspect(url))
-                } catch {
-                    return .invalid(
-                        message: error.localizedDescription,
-                        recovery: (error as? LocalizedError)?.recoverySuggestion
-                            ?? "Choose a current, unmodified Apple-issued provisioning profile.")
+        let task = Task { [weak self, profileInspector] in
+            defer {
+                if self?.inspectionTokens[url] == token {
+                    self?.profileInspectionTasks[url] = nil
                 }
-            }.value
+            }
+            guard !Task.isCancelled else { return }
+            let worker = Task.detached(priority: .userInitiated) {
+                try Task.checkCancellation()
+                // Security's synchronous CMS validation cannot be interrupted. Check at
+                // both boundaries so cancelled work never publishes an obsolete result.
+                let profile = try await profileInspector(url)
+                try Task.checkCancellation()
+                return profile
+            }
+            let inspection: ProfileInspection
+            do {
+                let profile = try await withTaskCancellationHandler {
+                    try await worker.value
+                } onCancel: {
+                    worker.cancel()
+                }
+                try Task.checkCancellation()
+                inspection = .valid(profile)
+            } catch {
+                guard !Task.isCancelled, !(error is CancellationError) else { return }
+                inspection = .invalid(
+                    message: error.localizedDescription,
+                    recovery: (error as? LocalizedError)?.recoverySuggestion
+                        ?? "Choose a current, unmodified Apple-issued provisioning profile.")
+            }
             guard let self, profiles.contains(url), inspectionTokens[url] == token else { return }
             profileInspections[url] = inspection
             refreshIdentifierSuggestion()
         }
+        profileInspectionTasks[url] = task
+        return task
     }
 
-    private func refreshProfiles() {
+    private func refreshProfiles(reinspect: Bool = false) {
+        for url in profileInspectionTasks.keys where !profiles.contains(url) {
+            profileInspectionTasks.removeValue(forKey: url)?.cancel()
+        }
         profileInspections = profileInspections.filter { profiles.contains($0.key) }
         inspectionTokens = inspectionTokens.filter { profiles.contains($0.key) }
-        for url in profiles where profileInspections[url] == nil { inspectProfile(url) }
+        for url in profiles where reinspect || profileInspections[url] == nil { inspectProfile(url) }
         refreshIdentifierSuggestion()
     }
 
@@ -335,15 +378,15 @@ final class WorkspaceModel: ObservableObject {
         } catch { savedProfileNotice = error.localizedDescription }
     }
 
-    private func applySavedSelection(_ selection: SavedSigningProfileSelection) {
+    func applySavedSelection(_ selection: SavedSigningProfileSelection) {
         applyingSavedSelection = true
         certificate = selection.certificate
         profiles = selection.provisioningProfiles
         password = selection.password ?? ""
         selectedSigningProfileID = selection.profile.id
         applyingSavedSelection = false
-        // Force fresh CMS/date checks when reselecting the same saved files.
-        for profile in profiles { inspectProfile(profile) }
+        // profiles.didSet schedules exactly one fresh CMS/date check per file,
+        // including when the same saved selection is chosen again.
         savedProfileNotice = selection.passwordNotice
     }
 

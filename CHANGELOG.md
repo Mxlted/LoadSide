@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Give workspace profile inspections explicit task ownership: cancel removed or superseded checks, discard late results, and schedule one fresh CMS check per file when selecting or reselecting saved profiles. Add cancellation and reselection regressions.
+
 - Require Apple Silicon Macs while retaining macOS 14. Build, verify, and package only native ARM64 app/CLI executables; remove Intel CI and helper pins, reject unsupported build hosts/targets, and name new archives `macOS-arm64`. Preserve universal/fat user-archive handling and all signing policies.
 - Consolidate architecture, warning policy, and SDK/deployment verification in the shared build configuration, including every bundled executable. Keep fail-closed production signing/notarization and non-overwriting archives.
 - Reuse a bounded checksum buffer for the pinned ARM64 HTTPS helper, retaining descriptor-based integrity checks, private storage, and cancellation cleanup. Report the existing official helper’s macOS 15 minimum before setup; retain local/custom HTTPS on macOS 14.

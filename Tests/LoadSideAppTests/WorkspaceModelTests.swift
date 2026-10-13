@@ -1,8 +1,8 @@
 import Foundation
-import LoadSideCore
 import XCTest
 
 @testable import LoadSideApp
+@testable import LoadSideCore
 
 final class WorkspaceModelTests: XCTestCase {
     @MainActor
@@ -143,7 +143,106 @@ final class WorkspaceModelTests: XCTestCase {
     }
 
     @MainActor
-    private func makeWorkspace() async throws -> (WorkspaceModel, URL) {
+    func testSavedSelectionInspectsEachProfileOnceAndRechecksReselection() async throws {
+        let probe = ProfileInspectionProbe()
+        let (model, root) = try await makeWorkspace(profileInspector: { try await probe.inspect($0) })
+        let profiles = [root.appendingPathComponent("main.mobileprovision"), root.appendingPathComponent("extension.mobileprovision")]
+        let selection = SavedSigningProfileSelection(
+            profile: SavedSigningProfile(
+                id: UUID(), name: "Synthetic selection", createdAt: Date(), profileCount: 2,
+                remembersPassword: false, expiresAt: Date().addingTimeInterval(60)),
+            certificate: root.appendingPathComponent("fixture.p12"), provisioningProfiles: profiles,
+            password: nil, passwordNotice: nil)
+
+        model.applySavedSelection(selection)
+        await model.waitForProfileInspections()
+        let firstCounts = await probe.counts()
+        XCTAssertEqual(firstCounts, Dictionary(uniqueKeysWithValues: profiles.map { ($0, 1) }))
+        XCTAssertEqual(model.selectedSigningProfileID, selection.profile.id)
+        XCTAssertFalse(model.profilesReady, "Synthetic invalid profiles must not bypass validation")
+
+        model.applySavedSelection(selection)
+        await model.waitForProfileInspections()
+        let secondCounts = await probe.counts()
+        XCTAssertEqual(secondCounts, Dictionary(uniqueKeysWithValues: profiles.map { ($0, 2) }))
+        XCTAssertFalse(model.profilesReady)
+    }
+
+    @MainActor
+    func testProfileRetryCancelsOldWorkerAndRejectsItsLateResult() async throws {
+        let probe = ProfileInspectionProbe(holdResults: true)
+        let (model, root) = try await makeWorkspace(profileInspector: { try await probe.inspect($0) })
+        addTeardownBlock { await probe.finishAll() }
+        let url = root.appendingPathComponent("fixture.mobileprovision")
+        model.profiles = [url]
+        // Replace the automatically scheduled check before it starts, retaining a
+        // handle so the obsolete worker can be awaited without scheduler assumptions.
+        let obsolete = model.inspectProfile(url)
+        try await waitForProbe { await probe.requestCount == 1 }
+
+        let replacement = model.inspectProfile(url)
+        try await waitForProbe {
+            let count = await probe.requestCount
+            let cancelled = await probe.wasCancelled(0)
+            return count == 2 && cancelled
+        }
+        await probe.finish(1, message: "Current inspection")
+        await replacement.value
+        assertInvalidInspection(model, url: url, message: "Current inspection")
+
+        await probe.finish(0, message: "Obsolete inspection")
+        await obsolete.value
+        assertInvalidInspection(model, url: url, message: "Current inspection")
+        XCTAssertFalse(model.profilesReady)
+    }
+
+    @MainActor
+    func testRemovingProfileCancelsWorkerAndDoesNotRestoreItsResult() async throws {
+        let probe = ProfileInspectionProbe(holdResults: true)
+        let (model, root) = try await makeWorkspace(profileInspector: { try await probe.inspect($0) })
+        addTeardownBlock { await probe.finishAll() }
+        let url = root.appendingPathComponent("fixture.mobileprovision")
+        model.profiles = [url]
+        let removed = model.inspectProfile(url)
+        try await waitForProbe { await probe.requestCount == 1 }
+
+        model.profiles = []
+        try await waitForProbe { await probe.wasCancelled(0) }
+        await probe.finish(0, message: "Removed inspection")
+        await removed.value
+
+        XCTAssertTrue(model.profileInspections.isEmpty)
+        XCTAssertFalse(model.profilesReady)
+        XCTAssertFalse(model.canSign)
+    }
+
+    @MainActor
+    private func assertInvalidInspection(
+        _ model: WorkspaceModel, url: URL, message: String, file: StaticString = #filePath, line: UInt = #line
+    ) {
+        guard case .invalid(let actual, _) = model.profileInspections[url] else {
+            XCTFail("Expected an invalid profile inspection", file: file, line: line)
+            return
+        }
+        XCTAssertEqual(actual, message, file: file, line: line)
+    }
+
+    @MainActor
+    private func waitForProbe(_ condition: @Sendable () async -> Bool) async throws {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+        while !(await condition()) {
+            guard ContinuousClock.now < deadline else {
+                XCTFail("Profile inspection did not reach the expected state before its test deadline")
+                throw CancellationError()
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+    }
+
+    @MainActor
+    private func makeWorkspace(
+        profileInspector: @escaping WorkspaceModel.ProfileInspector = { try ProvisioningProfile.inspect($0) }
+    ) async throws -> (WorkspaceModel, URL) {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("LoadSide-WorkspaceTests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
         let model = WorkspaceModel(
@@ -152,7 +251,8 @@ final class WorkspaceModelTests: XCTestCase {
                 directory: root.appendingPathComponent("profiles"), passwords: WorkspaceTestPasswords()),
             localLibrary: LocalLibraryModel(
                 store: LocalAppLibrary(directory: root.appendingPathComponent("library")),
-                installer: CloudflaredInstaller(directory: root.appendingPathComponent("tools"))))
+                installer: CloudflaredInstaller(directory: root.appendingPathComponent("tools"))),
+            profileInspector: profileInspector)
         addTeardownBlock {
             await model.waitForInitialLoad()
             try FileManager.default.removeItem(at: root)
@@ -160,6 +260,45 @@ final class WorkspaceModelTests: XCTestCase {
         await model.waitForInitialLoad()
         return (model, root)
     }
+}
+
+private actor ProfileInspectionProbe {
+    private var holdResults: Bool
+    private var requests: [URL] = []
+    private var cancelled: Set<Int> = []
+    private var pending: [Int: CheckedContinuation<ProvisioningProfile, any Error>] = [:]
+
+    init(holdResults: Bool = false) { self.holdResults = holdResults }
+
+    var requestCount: Int { requests.count }
+    func wasCancelled(_ index: Int) -> Bool { cancelled.contains(index) }
+    func counts() -> [URL: Int] { Dictionary(requests.map { ($0, 1) }, uniquingKeysWith: +) }
+
+    func inspect(_ url: URL) async throws -> ProvisioningProfile {
+        let index = requests.count
+        requests.append(url)
+        guard holdResults else { throw LoadSideError("fixture.invalid", "Synthetic invalid profile") }
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { pending[index] = $0 }
+        } onCancel: {
+            Task { await self.recordCancellation(index) }
+        }
+    }
+
+    func finish(_ index: Int, message: String) {
+        // Deliberately ignore cancellation until explicitly released, as a synchronous
+        // Security operation may still finish after the user changes the selection.
+        pending.removeValue(forKey: index)?.resume(throwing: LoadSideError("fixture.invalid", message))
+    }
+
+    func finishAll() {
+        holdResults = false
+        let continuations = Array(pending.values)
+        pending.removeAll()
+        for continuation in continuations { continuation.resume(throwing: CancellationError()) }
+    }
+
+    private func recordCancellation(_ index: Int) { cancelled.insert(index) }
 }
 
 private final class WorkspaceTestPasswords: SigningProfilePasswordStorage, @unchecked Sendable {
