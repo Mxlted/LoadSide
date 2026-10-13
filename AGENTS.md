@@ -30,6 +30,8 @@ Target Apple Silicon (ARM64) only, macOS 14+, Swift 6, and Foundation/Security/l
 
 Use `scripts/format.sh` and `.swift-format` for owned Swift sources; `scripts/check.sh` enforces formatting. Preserve vendored CArchive header formatting. Keep shared test fixtures in `Tests/LoadSideCoreTests/Support`, and retain persisted Codable keys, public APIs, and diagnostic codes during refactors. See `CONTRIBUTING.md` for the source map and validation workflow.
 
+Synthetic credential tests must verify import, private-key operation, isolation, and cleanup without changing system trust or keychain search lists. They cannot establish external `codesign` trust; qualify that with a real authorized identity.
+
 Use Context7 MCP for current library/framework/SDK/API/CLI documentation: resolve the library ID first, then query a focused concept. Prefer the alternate Context7 connector if one connection fails authentication. Use official primary documentation when no relevant Context7 documentation is available. General refactoring and business-logic changes do not need a documentation lookup.
 
 ## Documentation and feature work

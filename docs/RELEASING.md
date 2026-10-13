@@ -13,6 +13,7 @@ The version lives in `VERSION`. Keep the CLI version, UI fallback version, `CHAN
 Record the exact commit, macOS version, Xcode version, device model/OS, distribution type, and sanitized result for each applicable case:
 
 - [ ] Decrypted app without extensions: import P12, sign, export, install, and launch.
+- [ ] With a real authorized identity on each qualified macOS version, verify external `codesign` access through the dedicated temporary keychain without changing the user's trust settings, default keychain, or search list. Synthetic key-operation tests do not establish this trust/access boundary.
 - [ ] Local Library: fresh Automatic HTTPS helper download, Safari installation through both the HTTPS link and local HTTP catalog, large IPA transfer, cancellation/quit cleanup, interrupted network, and restart link rotation. Verify My HTTPS server and Local downloads only independently. Verify local/custom HTTPS on macOS 14, the Automatic HTTPS compatibility diagnostic on macOS 14, and all sharing modes on macOS 15+ Apple Silicon.
 - [ ] App with extension: separate valid profiles, install, launch the app, and exercise the extension.
 - [ ] Require matching extension profiles with only a main-app profile: fail with an actionable missing-profile diagnostic and no final export.
