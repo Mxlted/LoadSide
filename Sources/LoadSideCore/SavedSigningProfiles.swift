@@ -174,7 +174,10 @@ public actor SavedSigningProfileStore {
         return record
     }
 
-    public func select(_ id: UUID?) throws -> SavedSigningProfileSelection? {
+    /// Selection always validates managed files and current profile validity.
+    /// Set loadPassword to false for browsing or startup restoration, deferring
+    /// any Keychain authorization prompt until the user starts signing.
+    public func select(_ id: UUID?, loadPassword: Bool = true) throws -> SavedSigningProfileSelection? {
         try prepareRoot()
         guard let id else { try writeIndex(Index(version: 1, lastSelectedID: nil)); return nil }
         let record = try manifest(id)
@@ -189,7 +192,7 @@ public actor SavedSigningProfileStore {
             profiles.append(url)
         }
         var password: String?, passwordNotice: String?
-        if record.profile.remembersPassword {
+        if loadPassword && record.profile.remembersPassword {
             do {
                 password = try passwords.load(for: id)
                 if password == nil { passwordNotice = "The remembered password is missing from Keychain. Enter it again to sign." }

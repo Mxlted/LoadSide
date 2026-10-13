@@ -2,6 +2,26 @@ import XCTest
 @testable import LoadSideCore
 
 final class SigningTests: XCTestCase {
+    func testMainAppStillRejectsMalformedAppsAndMetadataNamedDirectoriesOrLinks() throws {
+        for kind in ["file", "directory", "symlink"] {
+            let root = try BinaryFixtures.temporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: root) }
+            let payload = root.appendingPathComponent("Payload")
+            try FileManager.default.createDirectory(at: payload.appendingPathComponent("Source.app"), withIntermediateDirectories: true)
+            switch kind {
+            case "file":
+                try Data("not an app".utf8).write(to: payload.appendingPathComponent("Malformed.app"))
+            case "directory":
+                try FileManager.default.createDirectory(at: payload.appendingPathComponent("._Source.app"), withIntermediateDirectories: false)
+            default:
+                try FileManager.default.createSymbolicLink(atPath: payload.appendingPathComponent("._Source.app").path, withDestinationPath: "Source.app")
+            }
+            XCTAssertThrowsError(try BundleInventory.mainApp(in: root), kind) { error in
+                XCTAssertEqual((error as? LoadSideError)?.code, "ipa.payload")
+            }
+        }
+    }
+
     func testAtomicCommitRefusesExistingDestination() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)

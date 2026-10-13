@@ -5,16 +5,22 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 enum AppSection: String, CaseIterable, Identifiable {
-    case workspace = "Sign", signingProfiles = "Signing Profiles", activity = "Activity", guide = "Help"
+    case workspace = "Workspace", library = "Local Library", signingProfiles = "Signing Profiles", activity = "Activity", guide = "Help"
     var id: Self { self }
     var symbol: String {
         switch self {
         case .workspace: "signature"
+        case .library: "network"
         case .signingProfiles: "person.crop.rectangle.stack"
         case .activity: "clock.arrow.circlepath"
         case .guide: "questionmark.circle"
         }
     }
+}
+
+enum JobMode: String, Codable, CaseIterable {
+    case sign, injectOnly
+    var title: String { self == .sign ? "Sign & export" : "Inject only" }
 }
 
 enum JobStatus: String, Codable {
@@ -40,6 +46,9 @@ struct JobRecord: Identifiable, Codable {
     var removeExtensions: Bool?
     var bundleIdentifierPolicy: BundleIdentifierPolicy?
     var savedSigningProfileID: UUID?
+    var extensionProfilePolicy: ExtensionProfilePolicy?
+    var jobMode: JobMode?
+    var injectionResult: InjectionExportResult?
 }
 
 enum ProfileInspection: Sendable {
@@ -51,6 +60,8 @@ enum ProfileInspection: Sendable {
 @MainActor
 final class WorkspaceModel: ObservableObject {
     @Published var section: AppSection = .workspace
+    @Published var jobMode: JobMode = .sign
+    let localLibrary = LocalLibraryModel()
     @Published var ipa: URL? { didSet { refreshIPAInspection() } }
     @Published var certificate: URL? { didSet { if !applyingSavedSelection { invalidateSavedSelection() } } }
     @Published var password = ""
@@ -58,7 +69,7 @@ final class WorkspaceModel: ObservableObject {
     @Published private(set) var profileInspections: [URL: ProfileInspection] = [:]
     @Published var injections: [URL] = []
     @Published var bundleIdentifier = "" { didSet { refreshIdentifierSuggestion() } }
-    @Published var identifierPolicy: BundleIdentifierPolicy = .automatic { didSet { refreshIdentifierSuggestion() } }
+    @Published var identifierPolicy: BundleIdentifierPolicy = .preserve { didSet { refreshIdentifierSuggestion() } }
     @Published private(set) var ipaInspection: IPAInspection?
     @Published private(set) var isInspectingIPA = false
     @Published private(set) var ipaInspectionError: String?
@@ -67,6 +78,7 @@ final class WorkspaceModel: ObservableObject {
     @Published private(set) var identifierSuggestionError: String?
     @Published private(set) var identifierSuggestionRecovery: String?
     @Published private(set) var unmatchedExtensionIdentifiers: [String] = []
+    @Published private(set) var unmatchedNestedAppIdentifiers: [String] = []
     @Published private(set) var savedSigningProfiles: [SavedSigningProfile] = []
     @Published private(set) var selectedSigningProfileID: UUID?
     @Published private(set) var isManagingSigningProfiles = false
@@ -74,6 +86,7 @@ final class WorkspaceModel: ObservableObject {
     @Published var displayName = ""
     @Published var policy: EntitlementPolicy = .strict
     @Published var removeExtensions = false { didSet { refreshIdentifierSuggestion() } }
+    @Published var extensionProfilePolicy: ExtensionProfilePolicy = .reuseMain
     @Published var history: [JobRecord] = []
     @Published var activeJobID: UUID?
     @Published var selectedJobID: UUID?
@@ -104,16 +117,39 @@ final class WorkspaceModel: ObservableObject {
             return false
         }
     }
-    var canSign: Bool { ipa != nil && certificate != nil && profilesReady && !isRunning && !isManagingSigningProfiles && !isInspectingIPA && ipaInspection != nil && identifierSuggestion != nil && (removeExtensions || unmatchedExtensionIdentifiers.isEmpty) }
+    var canSign: Bool {
+        guard ipa != nil, !isRunning, !isManagingSigningProfiles, !isInspectingIPA, ipaInspection != nil else { return false }
+        if jobMode == .injectOnly { return !injections.isEmpty }
+        return certificate != nil && profilesReady && identifierSuggestion != nil && unmatchedNestedAppIdentifiers.isEmpty && (removeExtensions || blockingExtensionIdentifiers.isEmpty)
+    }
+    var compatibilityExtensionIdentifiers: [String] {
+        guard extensionProfilePolicy == .reuseMain, let plan = identifierSuggestion else { return [] }
+        let mainProfiles = profiles.compactMap { url -> ProvisioningProfile? in
+            if case .valid(let profile) = profileInspections[url], profile.bundleIdentifierPattern == plan.profileBundleIdentifier { return profile }
+            return nil
+        }
+        guard Set(mainProfiles.map(\.uuid)).count == 1, let mainProfile = mainProfiles.first else { return [] }
+        return unmatchedExtensionIdentifiers.filter { mainProfile.canReuseIdentity(forExtension: $0, mainBundleIdentifier: plan.effectiveIdentifier) }
+    }
+    var blockingExtensionIdentifiers: [String] {
+        unmatchedExtensionIdentifiers.filter { !compatibilityExtensionIdentifiers.contains($0) }
+    }
     var canSaveSigningProfile: Bool { certificate != nil && profilesReady && !isRunning && !isManagingSigningProfiles }
+    var profileAppIDPatterns: [String] {
+        Array(Set(profiles.compactMap { url -> String? in
+            if case .valid(let profile) = profileInspections[url] { return profile.bundleIdentifierPattern }
+            return nil
+        })).sorted()
+    }
     var selectedSigningProfile: SavedSigningProfile? { savedSigningProfiles.first { $0.id == selectedSigningProfileID } }
-    var signingPlanNote: String { "The signing engine also checks certificate membership and entitlements before making any changes." }
+    var signingPlanNote: String { "The signing engine also checks certificate membership and entitlements before signing." }
     var currentJob: JobRecord? { history.first { $0.id == activeJobID } }
     var selectedJob: JobRecord? { history.first { $0.id == selectedJobID } ?? history.first }
     var missingInputs: String {
         if ipa == nil { return "Add an IPA to begin" }
         if isInspectingIPA { return "Inspecting the application…" }
         if ipaInspectionError != nil { return "Resolve the application inspection error" }
+        if jobMode == .injectOnly { return injections.isEmpty ? "Add a DEB, dylib, or framework" : "Ready to inject and export unsigned" }
         if certificate == nil { return "Add a signing certificate" }
         if profiles.isEmpty { return "Add a provisioning profile" }
         if profiles.contains(where: { if case .inspecting = profileInspections[$0] { return true }; return false }) {
@@ -122,7 +158,10 @@ final class WorkspaceModel: ObservableObject {
         if !profilesReady { return "Resolve provisioning profile errors" }
         if isManagingSigningProfiles { return "Loading signing files…" }
         if identifierSuggestionError != nil { return "Resolve the bundle identifier plan" }
-        if !removeExtensions && !unmatchedExtensionIdentifiers.isEmpty { return "Add extension profiles or explicitly remove app extensions" }
+        if !unmatchedNestedAppIdentifiers.isEmpty { return "Add matching profiles for nested apps" }
+        if !removeExtensions && !blockingExtensionIdentifiers.isEmpty { return "Add matching profiles to keep app extensions" }
+        if !removeExtensions && !compatibilityExtensionIdentifiers.isEmpty { return "Ready with experimental extension compatibility" }
+        if identifierSuggestion?.usesProfileIdentity == true { return "Ready with profile signing identity" }
         return "Ready to sign and export"
     }
 
@@ -130,6 +169,13 @@ final class WorkspaceModel: ObservableObject {
     func chooseCertificate() { selectFiles(kind: .certificate) }
     func chooseProfiles() { selectFiles(kind: .profile) }
     func chooseInjections() { selectFiles(kind: .injection) }
+
+    /// The two checkbox controls share one nonoptional policy, so exactly one
+    /// remains selected. Clicking the selected choice cannot clear the policy.
+    func selectExtensionProfilePolicy(_ policy: ExtensionProfilePolicy, isSelected: Bool) {
+        guard isSelected, !isRunning else { return }
+        extensionProfilePolicy = policy
+    }
 
     func inspectProfile(_ url: URL) {
         let token = UUID()
@@ -186,18 +232,24 @@ final class WorkspaceModel: ObservableObject {
     private func refreshIdentifierSuggestion() {
         identifierSuggestion = nil; identifierSuggestionError = nil; identifierSuggestionRecovery = nil
         unmatchedExtensionIdentifiers = []
+        unmatchedNestedAppIdentifiers = []
         guard let inspection = ipaInspection else { return }
         let checked = profiles.compactMap { url -> ProvisioningProfile? in
             if case .valid(let profile) = profileInspections[url] { return profile }; return nil
         }
         guard !checked.isEmpty, checked.count == profiles.count else { return }
         do {
-            let suggestion = try SigningPreflight.suggestBundleIdentifier(original: inspection.bundleIdentifier, profiles: checked, policy: identifierPolicy, override: nonempty(bundleIdentifier))
+            let nested = (removeExtensions ? [] : inspection.extensionBundleIdentifiers) + inspection.nestedAppBundleIdentifiers
+            let suggestion = try SigningPreflight.suggestBundleIdentifier(original: inspection.bundleIdentifier, profiles: checked, policy: identifierPolicy, override: nonempty(bundleIdentifier), nestedOriginalIdentifiers: nested)
             identifierSuggestion = suggestion
             for original in inspection.extensionBundleIdentifiers {
                 let effective = suggestion.identifier(forOriginalBundleIdentifier: original)
                 let matches = checked.contains { $0.matches(bundleIdentifier: effective) }
                 if !matches { unmatchedExtensionIdentifiers.append(effective) }
+            }
+            unmatchedNestedAppIdentifiers = inspection.nestedAppBundleIdentifiers.compactMap { original in
+                let effective = suggestion.identifier(forOriginalBundleIdentifier: original)
+                return checked.contains { $0.matches(bundleIdentifier: effective) } ? nil : effective
             }
         } catch {
             identifierSuggestionError = error.localizedDescription
@@ -231,9 +283,9 @@ final class WorkspaceModel: ObservableObject {
             let saved = try await savedProfileStore.save(name: name, certificate: certificate, password: suppliedPassword, profiles: sourceProfiles, rememberPassword: rememberPassword)
             await loadSavedSigningProfiles()
             guard savedSelectionToken == token else { return }
-            let selection = try await savedProfileStore.select(saved.id)
+            let selection = try await savedProfileStore.select(saved.id, loadPassword: false)
             if let selection { applySavedSelection(selection) }
-            if !rememberPassword { password = suppliedPassword }
+            password = suppliedPassword
             savedProfileNotice = selection?.passwordNotice ?? (rememberPassword ? "Signing files saved privately. The password is remembered in this Mac’s Keychain." : "Signing files saved privately. The current password remains only in this session and was not saved.")
         } catch { savedProfileNotice = redact(error.localizedDescription, secret: suppliedPassword) }
     }
@@ -244,7 +296,7 @@ final class WorkspaceModel: ObservableObject {
         let token = UUID(); savedSelectionToken = token
         defer { isManagingSigningProfiles = false }
         do {
-            let selection = try await savedProfileStore.select(id)
+            let selection = try await savedProfileStore.select(id, loadPassword: false)
             guard savedSelectionToken == token else { return }
             if let selection { applySavedSelection(selection) }
             else { selectedSigningProfileID = nil }
@@ -363,7 +415,7 @@ final class WorkspaceModel: ObservableObject {
 
     func beginSigning() {
         guard canSign else { return }
-        if password.isEmpty, let selected = selectedSigningProfile, selected.remembersPassword {
+        if jobMode == .sign, password.isEmpty, let selected = selectedSigningProfile, selected.remembersPassword {
             isManagingSigningProfiles = true
             let selectionID = selected.id, token = UUID()
             savedSelectionToken = token
@@ -396,12 +448,12 @@ final class WorkspaceModel: ObservableObject {
     private func presentExportPanel() {
         guard canSign, let ipa else { return }
         let panel = NSSavePanel()
-        panel.title = "Export signed IPA"
-        panel.prompt = "Sign & Export"
+        panel.title = jobMode == .sign ? "Export signed IPA" : "Export unsigned injected IPA"
+        panel.prompt = jobMode == .sign ? "Sign & Export" : "Inject & Export"
         panel.allowedContentTypes = [UTType(filenameExtension: "ipa") ?? .data]
-        panel.nameFieldStringValue = ipa.deletingPathExtension().lastPathComponent + "-signed.ipa"
+        panel.nameFieldStringValue = ipa.deletingPathExtension().lastPathComponent + (jobMode == .sign ? "-signed.ipa" : "-injected-unsigned.ipa")
         panel.canCreateDirectories = true
-        panel.message = "The export is written only after all signing and verification steps succeed."
+        panel.message = jobMode == .sign ? "The export is written only after all signing and verification steps succeed." : "No certificate is needed. This export must be signed before ordinary iOS installation."
         panel.begin { [weak self] response in
             guard response == .OK, let output = panel.url else { return }
             self?.run(output: output)
@@ -409,7 +461,7 @@ final class WorkspaceModel: ObservableObject {
     }
 
     private func run(output: URL) {
-        guard canSign, let ipa, let certificate else { return }
+        guard canSign, let ipa else { return }
         if output.standardizedFileURL == ipa.standardizedFileURL {
             notice = "Choose a different export name. Your original IPA must be preserved."
             return
@@ -418,18 +470,24 @@ final class WorkspaceModel: ObservableObject {
             notice = "An export already exists at this destination. Choose a new name to preserve the existing file."
             return
         }
-        let request = SigningRequest(
+        let mode = jobMode
+        let request = mode == .sign ? certificate.map { certificate in SigningRequest(
             ipa: ipa, certificate: certificate, password: password, profiles: profiles,
             injections: injections, output: output,
             bundleIdentifier: nonempty(bundleIdentifier), displayName: nonempty(displayName),
-            removeExtensions: removeExtensions, entitlementPolicy: policy, bundleIdentifierPolicy: identifierPolicy
-        )
+            removeExtensions: removeExtensions, entitlementPolicy: policy, bundleIdentifierPolicy: identifierPolicy,
+            extensionProfilePolicy: removeExtensions ? .matching : extensionProfilePolicy
+        ) } : nil
+        let injectionRequest = InjectionRequest(ipa: ipa, injections: injections, output: output,
+                                               displayName: nonempty(displayName), removeExtensions: removeExtensions)
         let jobID = UUID()
         let record = JobRecord(
             id: jobID, startedAt: Date(), sourceName: ipa.lastPathComponent,
             status: .running, output: output, events: [], entitlementPolicy: policy,
-            profileCount: profiles.count, injectionNames: injections.map(\.lastPathComponent),
-            removeExtensions: removeExtensions, bundleIdentifierPolicy: identifierPolicy, savedSigningProfileID: selectedSigningProfileID
+            profileCount: mode == .sign ? profiles.count : 0, injectionNames: injections.map(\.lastPathComponent),
+            removeExtensions: removeExtensions, bundleIdentifierPolicy: mode == .sign ? identifierPolicy : nil,
+            savedSigningProfileID: mode == .sign ? selectedSigningProfileID : nil,
+            extensionProfilePolicy: request?.extensionProfilePolicy, jobMode: mode
         )
         history.insert(record, at: 0)
         history = Array(history.prefix(50))
@@ -439,16 +497,22 @@ final class WorkspaceModel: ObservableObject {
         isCancelling = false
         section = .workspace
         persistHistory()
-        let secret = password
+        let secret = mode == .sign ? password : ""
         password = ""
         task = Task { [weak self] in
             do {
-                let result = try await SigningEngine().run(request, onEvent: { [weak self] event in
+                let onEvent: @Sendable (SigningEvent) -> Void = { [weak self] event in
                     Task { @MainActor [weak self] in
                         self?.receive(event, for: jobID, secret: secret)
                     }
-                })
-                self?.finish(jobID, result: result)
+                }
+                if let request {
+                    let result = try await SigningEngine().run(request, onEvent: onEvent)
+                    self?.finish(jobID, result: result)
+                } else {
+                    let result = try await InjectionEngine().run(injectionRequest, onEvent: onEvent)
+                    self?.finish(jobID, injectionResult: result)
+                }
             } catch {
                 self?.finish(jobID, error: error, secret: secret)
             }
@@ -470,15 +534,24 @@ final class WorkspaceModel: ObservableObject {
         history[index].result = result
         history[index].finishedAt = Date()
         didFinish()
+        Task { await localLibrary.add(result) }
+    }
+
+    private func finish(_ id: UUID, injectionResult: InjectionExportResult) {
+        guard let index = history.firstIndex(where: { $0.id == id }) else { return }
+        history[index].status = .completed
+        history[index].injectionResult = injectionResult
+        history[index].finishedAt = Date()
+        didFinish()
     }
 
     private func finish(_ id: UUID, error: Error, secret: String) {
         guard let index = history.firstIndex(where: { $0.id == id }) else { return }
         let cancelled = error is CancellationError || (error as? LoadSideError)?.code == "cancelled"
         history[index].status = cancelled ? .cancelled : .failed
-        history[index].failure = cancelled ? "Signing was cancelled." : redact(error.localizedDescription, secret: secret)
+        history[index].failure = cancelled ? "The export was cancelled." : redact(error.localizedDescription, secret: secret)
         history[index].recovery = cancelled
-            ? "Your input files are unchanged. Enter your certificate password again, then start a new export."
+            ? "Your input files are unchanged. Start a new export when ready."
             : (error as? LocalizedError)?.recoverySuggestion.map { redact($0, secret: secret) }
                 ?? "Review the diagnostics, update your inputs, and try again."
         history[index].errorCode = (error as? LoadSideError)?.code
@@ -502,9 +575,11 @@ final class WorkspaceModel: ObservableObject {
     func reset() {
         guard !isRunning, !isManagingSigningProfiles else { return }
         ipa = nil; password = ""
+        jobMode = .sign
         if selectedSigningProfileID == nil { certificate = nil; profiles = [] }
         injections = []
-        bundleIdentifier = ""; identifierPolicy = .automatic; displayName = ""; policy = .strict; removeExtensions = false
+        bundleIdentifier = ""; identifierPolicy = .preserve; displayName = ""; policy = .strict; removeExtensions = false; extensionProfilePolicy = .reuseMain
+        showAdvanced = false
         activeJobID = nil
     }
 

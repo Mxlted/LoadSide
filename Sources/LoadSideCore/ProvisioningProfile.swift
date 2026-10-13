@@ -72,7 +72,7 @@ public struct ProvisioningProfile: @unchecked Sendable {
         guard let best = candidates.first else {
             let authorized = profiles.filter { $0.developerCertificates.contains(certificate) }.map(\.bundleIdentifierPattern).sorted()
             let allowed = Array(Set(authorized)).sorted().prefix(6).joined(separator: ", ")
-            throw LoadSideError("profile.noMatch", "No profile authorizes \(bundleIdentifier) with the selected certificate. Profile App IDs: \(allowed.isEmpty ? "none for this certificate" : allowed).", recovery: "The certificate identifies the signer; the profile controls permitted bundle IDs. Use Automatic bundle ID selection, enter an authorized override, or add matching profiles for retained apps and extensions.")
+            throw LoadSideError("profile.noMatch", "No profile authorizes \(bundleIdentifier) with the selected certificate. Profile App IDs: \(allowed.isEmpty ? "none for this certificate" : allowed).", recovery: "Add a matching profile containing the selected certificate to keep this identifier. To intentionally change the main app’s identity, enter an authorized override or select Automatic bundle ID selection.")
         }
         let equal = candidates.filter { $0.specificity == best.specificity && $0.uuid != best.uuid }
         guard equal.isEmpty else { throw LoadSideError("profile.ambiguous", "Several profiles match \(bundleIdentifier) equally well.", recovery: "Remove the extra matching profiles so each bundle has an unambiguous profile.") }

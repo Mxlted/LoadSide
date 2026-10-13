@@ -5,6 +5,8 @@ import XCTest
 private final class MemorySavedPasswords: SigningProfilePasswordStorage, @unchecked Sendable {
     private let lock = NSLock()
     private var values: [UUID: String] = [:]
+    private var loads = 0
+    var loadCount: Int { lock.withLock { loads } }
     var failSave = false
     func save(_ password: String, for id: UUID) throws {
         try lock.withLock {
@@ -12,7 +14,9 @@ private final class MemorySavedPasswords: SigningProfilePasswordStorage, @unchec
             values[id] = password
         }
     }
-    func load(for id: UUID) throws -> String? { lock.withLock { values[id] } }
+    func load(for id: UUID) throws -> String? {
+        lock.withLock { loads += 1; return values[id] }
+    }
     func delete(for id: UUID) throws { _ = lock.withLock { values.removeValue(forKey: id) } }
 }
 private final class SavedProfileExpiry: @unchecked Sendable {
@@ -68,6 +72,37 @@ final class SavedSigningProfilesTests: XCTestCase {
         let after = try await restarted.library()
         XCTAssertTrue(after.profiles.isEmpty); XCTAssertNil(after.lastSelectedID)
         XCTAssertNil(try passwords.load(for: saved.id))
+    }
+    func testSelectionCanDeferPasswordAccessWithoutSkippingFileOrProfileValidation() async throws {
+        let root = try BinaryFixtures.temporaryDirectory(); defer { try? FileManager.default.removeItem(at: root) }
+        let (certificate, profile) = try inputs(root), passwords = MemorySavedPasswords(), expiry = SavedProfileExpiry()
+        let store = store(root, passwords: passwords, expiry: expiry)
+        let saved = try await store.save(name: "Restore without a prompt", certificate: certificate, password: "fixture-password", profiles: [profile], rememberPassword: true)
+        _ = try await store.select(nil, loadPassword: false)
+
+        let deferred = try await store.select(saved.id, loadPassword: false)
+        XCTAssertEqual(deferred?.profile.id, saved.id)
+        XCTAssertEqual(deferred?.profile.remembersPassword, true)
+        XCTAssertNil(deferred?.password)
+        XCTAssertNil(deferred?.passwordNotice, "An intentionally deferred load is not a missing-password error")
+        XCTAssertEqual(passwords.loadCount, 0)
+        XCTAssertEqual(try Data(contentsOf: XCTUnwrap(deferred?.certificate)), Data("encrypted-p12-fixture".utf8))
+        XCTAssertEqual(try Data(contentsOf: XCTUnwrap(deferred?.provisioningProfiles.first)), Data("signed-profile-fixture".utf8))
+        let library = try await store.library()
+        XCTAssertEqual(library.lastSelectedID, saved.id)
+
+        let loaded = try await store.select(saved.id)
+        XCTAssertEqual(loaded?.password, "fixture-password", "Default selection retains password retrieval")
+        XCTAssertEqual(passwords.loadCount, 1)
+
+        expiry.expired = true
+        do { _ = try await store.select(saved.id, loadPassword: false); XCTFail("Expired profile was accepted") }
+        catch { XCTAssertEqual((error as? LoadSideError)?.code, "profile.expired") }
+        expiry.expired = false
+        try Data("changed".utf8).write(to: XCTUnwrap(deferred?.certificate))
+        do { _ = try await store.select(saved.id, loadPassword: false); XCTFail("Changed certificate was accepted") }
+        catch { XCTAssertEqual((error as? LoadSideError)?.code, "savedProfile.corrupt") }
+        XCTAssertEqual(passwords.loadCount, 1, "Deferred selection never calls password storage, including on failure")
     }
     func testCorruptAndMissingFilesAreReportedWithoutDeletingRecords() async throws {
         let root = try BinaryFixtures.temporaryDirectory(); defer { try? FileManager.default.removeItem(at: root) }

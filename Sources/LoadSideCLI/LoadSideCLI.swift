@@ -16,6 +16,7 @@ struct LoadSideCLI {
             case "doctor": try doctor(arguments: Array(arguments.dropFirst()))
             case "profile": try inspectProfile(arguments: Array(arguments.dropFirst()))
             case "sign": try await sign(arguments: Array(arguments.dropFirst()))
+            case "inject": try await inject(arguments: Array(arguments.dropFirst()))
             default: throw LoadSideError("arguments.command", "Unknown command: \(command)", recovery: "Run loadside --help for supported commands.")
             }
         } catch is CancellationError {
@@ -37,6 +38,14 @@ struct LoadSideCLI {
         let output = try options.requiredURL("--output")
         let profiles = options.values["--profile", default: []].map { URL(fileURLWithPath: $0) }
         guard !profiles.isEmpty else { throw Options.missing("--profile") }
+        let policy = options.values["--entitlements"]?.first ?? "strict"
+        guard let entitlementPolicy = EntitlementPolicy(rawValue: policy) else {
+            throw LoadSideError("arguments.entitlements", "Unknown entitlement policy: \(policy)", recovery: "Use strict (default) or compatible (explicitly permit dropping unsupported capabilities).")
+        }
+        let identifierPolicyValue = options.values["--bundle-id-policy"]?.first ?? "preserve"
+        guard let identifierPolicy = BundleIdentifierPolicy(rawValue: identifierPolicyValue) else {
+            throw LoadSideError("arguments.bundleIdentifierPolicy", "Unknown bundle identifier policy: \(identifierPolicyValue)", recovery: "Use preserve (default) to keep the app's original identifier, or automatic to intentionally resolve a unique authorized identifier. --bundle-id overrides either policy.")
+        }
         if options.flags.contains("--password-stdin"), options.values["--password-file"] != nil {
             throw LoadSideError("arguments.password", "Choose one password input method.", recovery: "Use either --password-stdin or --password-file, or omit both for a hidden terminal prompt.")
         }
@@ -65,20 +74,14 @@ struct LoadSideCLI {
             password = String(cString: pointer)
             memset(pointer, 0, strlen(pointer))
         }
-        let policy = options.values["--entitlements"]?.first ?? "strict"
-        guard let entitlementPolicy = EntitlementPolicy(rawValue: policy) else {
-            throw LoadSideError("arguments.entitlements", "Unknown entitlement policy: \(policy)", recovery: "Use strict (default) or compatible (explicitly permit dropping unsupported capabilities).")
-        }
-        let identifierPolicyValue = options.values["--bundle-id-policy"]?.first ?? "automatic"
-        guard let identifierPolicy = BundleIdentifierPolicy(rawValue: identifierPolicyValue) else {
-            throw LoadSideError("arguments.bundleIdentifierPolicy", "Unknown bundle identifier policy: \(identifierPolicyValue)", recovery: "Use automatic (default) to resolve a unique authorized identifier, or preserve to require the app's current identifier. --bundle-id overrides either policy.")
-        }
         let request = SigningRequest(
             ipa: ipa, certificate: certificate, password: password, profiles: profiles,
             injections: options.values["--inject", default: []].map { URL(fileURLWithPath: $0) }, output: output,
             bundleIdentifier: options.values["--bundle-id"]?.first,
             displayName: options.values["--name"]?.first, removeExtensions: options.flags.contains("--remove-extensions"), entitlementPolicy: entitlementPolicy,
-            bundleIdentifierPolicy: identifierPolicy
+            bundleIdentifierPolicy: identifierPolicy,
+            extensionProfilePolicy: options.flags.contains("--require-matching-extension-profiles") ? .matching
+                : options.flags.contains("--reuse-main-profile-for-extensions") ? .reuseMain : nil
         )
         let json = options.flags.contains("--json")
         let task = Task {
@@ -131,6 +134,54 @@ struct LoadSideCLI {
         guard missing.isEmpty else { throw LoadSideError("environment.tools", "Required Apple tools are missing.", recovery: "Run LoadSide on a supported macOS installation.") }
     }
 
+    static func inject(arguments: [String]) async throws {
+        let options = try Options(arguments)
+        let allowedValues: Set<String> = ["--ipa", "--output", "--inject", "--name"]
+        let allowedFlags: Set<String> = ["--json", "--remove-extensions"]
+        let unsupported = Set(options.values.keys).subtracting(allowedValues).union(options.flags.subtracting(allowedFlags))
+        guard unsupported.isEmpty else {
+            throw LoadSideError("arguments.inject", "The inject command does not accept \(unsupported.sorted().joined(separator: ", ")).", recovery: "Use loadside sign for signing options. Injection exports an unsigned IPA and never requests credentials.")
+        }
+        let request = InjectionRequest(ipa: try options.requiredURL("--ipa"),
+            injections: options.values["--inject", default: []].map { URL(fileURLWithPath: $0) },
+            output: try options.requiredURL("--output"), displayName: options.values["--name"]?.first,
+            removeExtensions: options.flags.contains("--remove-extensions"))
+        let json = options.flags.contains("--json")
+        let task = Task {
+            try await InjectionEngine().run(request) { event in
+                if json {
+                    let encoder = JSONEncoder()
+                    encoder.dateEncodingStrategy = .iso8601
+                    if let data = try? encoder.encode(event) { writeError(String(decoding: data, as: UTF8.self) + "\n") }
+                } else {
+                    writeError("[\(Int(event.fraction * 100))%] \(event.stage.title): \(event.message)\n")
+                }
+            }
+        }
+        signal(SIGINT, SIG_IGN)
+        signal(SIGTERM, SIG_IGN)
+        let interrupt = DispatchSource.makeSignalSource(signal: SIGINT, queue: .global())
+        let terminate = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .global())
+        interrupt.setEventHandler { task.cancel() }
+        terminate.setEventHandler { task.cancel() }
+        interrupt.resume(); terminate.resume()
+        defer { interrupt.cancel(); terminate.cancel() }
+        let result = try await task.value
+        if json {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            encoder.dateEncodingStrategy = .iso8601
+            print(String(decoding: try encoder.encode(result), as: UTF8.self))
+        } else {
+            print("Exported UNSIGNED: \(result.output.path)")
+            print("Bundle:   \(result.bundleIdentifier)")
+            print("Injected: \(result.injectedLibraryCount) libraries")
+            print("SHA-256:  \(result.sha256)")
+            print("Signing is still required before installation on a standard iOS device.")
+            for warning in result.warnings { writeError("warning: \(warning)\n") }
+        }
+    }
+
     static func inspectProfile(arguments: [String]) throws {
         guard arguments.count == 1 else { throw LoadSideError("arguments.profile", "Provide one mobileprovision path.", recovery: "Usage: loadside profile PROFILE.mobileprovision") }
         let profile = try ProvisioningProfile.inspect(URL(fileURLWithPath: arguments[0]))
@@ -147,15 +198,16 @@ struct LoadSideCLI {
     static func writeError(_ text: String) { FileHandle.standardError.write(Data(text.utf8)) }
 
     static let help = """
-    LoadSide — local IPA signing for macOS
+    LoadSide — local IPA signing and injection for macOS
 
     Usage:
       loadside sign --ipa APP.ipa --p12 IDENTITY.p12 --profile APP.mobileprovision --output SIGNED.ipa [options]
+      loadside inject --ipa APP.ipa --inject TWEAK.deb --output APP-unsigned.ipa [--inject PATH] [--name TEXT] [--remove-extensions] [--json]
       loadside doctor
       loadside profile PROFILE.mobileprovision
       loadside version
 
-    Required:
+    Required for sign:
       --ipa PATH             Unsigned or previously signed, decrypted IPA
       --p12 PATH             Apple signing identity and private key (PKCS#12)
       --profile PATH         Provisioning profile; repeat for nested apps/extensions
@@ -164,16 +216,24 @@ struct LoadSideCLI {
     Options:
       --inject PATH          .deb, .dylib, or .framework; repeat for dependencies
       --bundle-id ID         Explicitly set the root bundle identifier
-      --bundle-id-policy P   automatic (default) resolves a unique authorized ID; preserve keeps the original
+      --bundle-id-policy P   preserve (default) keeps the original; automatic resolves a unique authorized ID
+                             Preserve can use an exact profile signing identity while keeping the metadata ID
       --name TEXT            Change the application's display name
       --remove-extensions    Explicitly omit .appex bundles and their features
+      --reuse-main-profile-for-extensions
+                             Default: retain eligible unmatched extensions with the main profile identity (experimental)
+      --require-matching-extension-profiles
+                             Require matching profiles for every retained extension; disables experimental reuse
       --entitlements POLICY strict (default), or compatible to drop unauthorized claims
+                            Both omit and log known Apple-approval claims if unauthorized
       --password-stdin       Read one password line from standard input
       --password-file PATH   Read a UTF-8 password file with owner-only permissions
       --json                Print result JSON to stdout and progress JSONL to stderr
       --help                Show this help
 
-    With no password option, prompts in the terminal without echoing.
+    The inject command requires no certificate, profile, or password. It removes old
+    signatures and exports an UNSIGNED IPA that must be signed before device installation.
+    The sign command prompts in the terminal without echoing when no password option is given.
     Ctrl-C cancels the job and cleans temporary signing material.
     LoadSide does not decrypt apps, install to devices, or run DEB scripts.
     """
@@ -183,7 +243,7 @@ private struct Options {
     var values: [String: [String]] = [:]
     var flags: Set<String> = []
     static let valueOptions: Set<String> = ["--ipa", "--p12", "--profile", "--output", "--inject", "--bundle-id", "--bundle-id-policy", "--name", "--entitlements", "--password-file"]
-    static let flagOptions: Set<String> = ["--password-stdin", "--json", "--remove-extensions"]
+    static let flagOptions: Set<String> = ["--password-stdin", "--json", "--remove-extensions", "--reuse-main-profile-for-extensions", "--require-matching-extension-profiles"]
     static let repeatable: Set<String> = ["--profile", "--inject"]
 
     init(_ arguments: [String]) throws {
@@ -199,6 +259,11 @@ private struct Options {
                 values[option, default: []].append(arguments[index + 1])
                 index += 2
             } else { throw LoadSideError("arguments.unknown", "Unknown option: \(option)", recovery: "Run loadside --help for supported options.") }
+        }
+        if flags.contains("--reuse-main-profile-for-extensions") {
+            guard !flags.contains("--require-matching-extension-profiles"), !flags.contains("--remove-extensions") else {
+                throw LoadSideError("arguments.extensionPolicy", "Experimental extension profile reuse cannot be combined with matching-only profiles or extension removal.", recovery: "Choose one extension profile policy, or use --remove-extensions alone.")
+            }
         }
     }
 

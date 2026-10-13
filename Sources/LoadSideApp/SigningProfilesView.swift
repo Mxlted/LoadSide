@@ -8,33 +8,31 @@ struct SigningProfilesView: View {
     @State private var deleting: SavedSigningProfile?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 5) {
-                    Text("Signing Profiles").font(.system(size: 20, weight: .semibold))
-                    Text("Keep a certificate and its provisioning profiles together for reuse.")
-                        .font(.system(size: 12)).foregroundStyle(.secondary)
-                }
+        VStack(alignment: .leading, spacing: 20) {
+            HStack(alignment: .center, spacing: 18) {
+                PageHeading(title: "Signing Profiles", detail: "Keep your certificate and provisioning profiles ready for the next app.")
                 Spacer()
-                Button("Save Current Identity…") { showSave = true }.disabled(!model.canSaveSigningProfile)
+                Button { showSave = true } label: { Label("Save Current Identity…", systemImage: "plus") }
+                    .adaptiveGlassButton(prominent: true).disabled(!model.canSaveSigningProfile)
+                    .help(model.canSaveSigningProfile ? "Save the signing identity currently loaded in the workspace" : "Import a certificate and provisioning profiles in the workspace first")
             }
             if let notice = model.savedProfileNotice { InlineNotice(message: notice, color: Palette.accent, symbol: "info.circle") }
             if model.isManagingSigningProfiles { ProgressView("Updating profile library…").controlSize(.small).font(.system(size: 11)) }
             if model.savedSigningProfiles.isEmpty {
                 VStack(spacing: 0) {
-                    EmptyState(symbol: "person.crop.rectangle.stack", title: "No saved signing profiles", description: "Import a P12 and provisioning profiles in Sign, then save the identity. You can choose whether to remember its password in Keychain.")
-                    Button("Go to Sign") { model.section = .workspace }.padding(.bottom, 55)
+                    EmptyState(symbol: "person.crop.rectangle.stack", title: "No saved signing profiles", description: "Import a P12 and provisioning profiles in the workspace, then save the identity. You can choose whether to remember its password in Keychain.")
+                    Button("Open Workspace") { model.jobMode = .sign; model.section = .workspace }.adaptiveGlassButton(prominent: true).padding(.bottom, 40)
                 }.frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ScrollView {
-                    VStack(spacing: 10) {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 460), spacing: 14, alignment: .top)], spacing: 14) {
                         ForEach(model.savedSigningProfiles) { profile in profileRow(profile) }
                     }
                 }
-                Text("Saved files are copied into LoadSide’s private application support folder. Passwords are stored only in Keychain when you explicitly choose to remember them.")
-                    .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                Label("Saved copies stay on this Mac. Passwords are remembered in Keychain only when you choose.", systemImage: "lock.shield")
+                    .font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
-        }.padding(24)
+        }.padding(22)
         .sheet(isPresented: $showSave) { SaveSigningProfileSheet(model: model) }
         .sheet(item: $renaming) { profile in RenameSigningProfileSheet(model: model, profile: profile) }
         .alert("Delete signing profile?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } })) {
@@ -50,41 +48,41 @@ struct SigningProfilesView: View {
 
     private func profileRow(_ profile: SavedSigningProfile) -> some View {
         Panel {
-            VStack(alignment: .leading, spacing: 11) {
+            VStack(alignment: .leading, spacing: 15) {
                 HStack(alignment: .center, spacing: 12) {
-                    Image(systemName: "person.crop.rectangle").font(.system(size: 23, weight: .light)).foregroundStyle(Palette.accent).frame(width: 32)
+                    SymbolTile(symbol: "person.crop.rectangle", size: 44)
                     VStack(alignment: .leading, spacing: 5) {
                         HStack(spacing: 8) {
-                            Text(profile.name).font(.system(size: 13, weight: .semibold))
+                            Text(profile.name).font(.system(size: 15, weight: .semibold)).lineLimit(2)
                             if model.selectedSigningProfileID == profile.id {
-                                Text("Selected").font(.system(size: 10, weight: .medium)).foregroundStyle(Palette.accent)
+                                Label("Selected", systemImage: "checkmark.circle.fill")
+                                    .font(.system(size: 11, weight: .medium)).foregroundStyle(Palette.accent)
                             }
                         }
-                        HStack(spacing: 7) {
+                        VStack(alignment: .leading, spacing: 4) {
                             Text("\(profile.profileCount) provisioning profile\(profile.profileCount == 1 ? "" : "s")")
-                            Text("·")
                             Label(profile.remembersPassword ? "Password in Keychain" : "Password not saved", systemImage: profile.remembersPassword ? "lock.fill" : "lock.open")
-                        }.font(.system(size: 11)).foregroundStyle(.secondary)
+                        }.font(.system(size: 12)).foregroundStyle(.secondary)
                     }
                     Spacer(minLength: 10)
-                    Button("Use Profile") {
+                    Button(model.selectedSigningProfileID == profile.id ? "Open" : "Use Profile") {
                         Task {
                             await model.selectSigningProfile(profile.id)
-                            if model.selectedSigningProfileID == profile.id { model.section = .workspace }
+                            if model.selectedSigningProfileID == profile.id { model.jobMode = .sign; model.section = .workspace }
                         }
                     }.disabled(model.isRunning || model.isManagingSigningProfiles || profile.issue != nil)
                     Menu {
                         Button("Rename…") { renaming = profile }
                         Button("Delete…", role: .destructive) { deleting = profile }
                     } label: { Image(systemName: "ellipsis") }
-                    .menuStyle(.borderlessButton).frame(width: 20).help("Actions for \(profile.name)").accessibilityLabel("Actions for \(profile.name)")
+                    .menuStyle(.borderlessButton).frame(width: 28, height: 28).help("Actions for \(profile.name)").accessibilityLabel("Actions for \(profile.name)")
                     .disabled(model.isRunning || model.isManagingSigningProfiles)
                 }
-                HStack(spacing: 15) {
+                HStack(spacing: 16) {
                     Text("Saved \(profile.createdAt.formatted(date: .abbreviated, time: .omitted))")
                     Text("Earliest expiry \(profile.expiresAt.formatted(date: .abbreviated, time: .omitted))")
                         .foregroundStyle(profile.expiresAt <= Date() ? Palette.warning : Color.secondary)
-                }.font(.system(size: 10)).foregroundStyle(.secondary).padding(.leading, 44)
+                }.font(.system(size: 11)).foregroundStyle(.secondary).padding(.leading, 56)
                 if let issue = profile.issue { InlineNotice(message: issue, color: Palette.error) }
             }
         }
@@ -100,7 +98,7 @@ struct SaveSigningProfileSheet: View {
     @FocusState private var nameFocused: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: 20) {
             VStack(alignment: .leading, spacing: 5) {
                 Text("Save signing profile").font(.system(size: 18, weight: .semibold))
                 Text("Reuse this certificate and its provisioning profiles.").font(.system(size: 12)).foregroundStyle(.secondary)
@@ -113,11 +111,12 @@ struct SaveSigningProfileSheet: View {
                 }
             }
             VStack(alignment: .leading, spacing: 7) {
-                Toggle("Remember P12 password in Keychain", isOn: $rememberPassword).font(.system(size: 12))
+                Toggle("Remember P12 password in Keychain", isOn: $rememberPassword).toggleStyle(.checkbox).font(.system(size: 12))
                 Text(rememberPassword ? "The current password will be stored as a local Keychain password item. The signing identity is never imported into your login keychain." : "The password will not be saved. Enter it again when you use this signing profile.")
                     .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
             if attemptedSave, let notice = model.savedProfileNotice { InlineNotice(message: notice, color: Palette.error) }
+            Divider()
             HStack {
                 if model.isManagingSigningProfiles { ProgressView().controlSize(.small) }
                 Spacer()
@@ -132,7 +131,7 @@ struct SaveSigningProfileSheet: View {
                 }.keyboardShortcut(.defaultAction).buttonStyle(.borderedProminent)
                     .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !model.canSaveSigningProfile)
             }
-        }.padding(24).frame(width: 430)
+        }.padding(28).frame(width: 470)
         .interactiveDismissDisabled(model.isManagingSigningProfiles)
         .onAppear { nameFocused = true }
     }

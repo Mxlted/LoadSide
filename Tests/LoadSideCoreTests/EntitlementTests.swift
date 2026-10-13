@@ -35,6 +35,87 @@ final class EntitlementTests: XCTestCase {
         XCTAssertTrue(result.warnings.contains { $0.contains("aps-environment") })
     }
 
+    func testApprovalRequiredCapabilitiesAreOmittedAndLoggedInBothPolicies() throws {
+        let requested: [String: Any] = [
+            "com.apple.developer.networking.multicast": true,
+            "com.apple.developer.device-information.user-assigned-device-name": true
+        ]
+        for policy in EntitlementPolicy.allCases {
+            var logged: [String] = []
+            let result = try EntitlementResolver.resolve(requested: requested, profile: testProfile(), bundleIdentifier: "com.example.app.extension", policy: policy) { logged.append($0) }
+            XCTAssertEqual(logged, result.warnings)
+            XCTAssertEqual(logged.count, 2)
+            for key in requested.keys {
+                XCTAssertNil(result.values[key])
+                XCTAssertTrue(logged.contains { $0.contains(key) && $0.contains("com.example.app.extension") && $0.contains("Apple-approval") && $0.contains("may stop working") })
+            }
+            XCTAssertTrue(logged.contains { $0.contains("Multicast Networking") })
+            XCTAssertTrue(logged.contains { $0.contains("User-Assigned Device Name") })
+        }
+    }
+
+    func testApprovalRequiredCapabilitiesArePreservedOnlyWhenAuthorized() throws {
+        for key in ["com.apple.developer.networking.multicast", "com.apple.developer.device-information.user-assigned-device-name"] {
+            for policy in EntitlementPolicy.allCases {
+                let authorized = try EntitlementResolver.resolve(requested: [key: true], profile: testProfile(extras: [key: true]), bundleIdentifier: "com.example.app", policy: policy)
+                XCTAssertEqual(authorized.values[key] as? Bool, true)
+                XCTAssertTrue(authorized.warnings.isEmpty)
+                for denied: Any in [false, NSNumber(value: 1), "true"] {
+                    let omitted = try EntitlementResolver.resolve(requested: [key: true], profile: testProfile(extras: [key: denied]), bundleIdentifier: "com.example.app", policy: policy)
+                    XCTAssertNil(omitted.values[key])
+                    XCTAssertEqual(omitted.warnings.count, 1)
+                }
+                let unrequested = try EntitlementResolver.resolve(requested: [:], profile: testProfile(extras: [key: true]), bundleIdentifier: "com.example.app", policy: policy)
+                XCTAssertNil(unrequested.values[key])
+                XCTAssertTrue(unrequested.warnings.isEmpty)
+            }
+        }
+    }
+
+    func testApprovalOmissionsAreLoggedEvenWhenAnotherEntitlementBlocksStrictSigning() throws {
+        for key in ["aps-environment", "com.apple.security.application-groups", "com.apple.developer.declared-age-range", "com.apple.developer.coremedia.allow-alternate-video-decoder-selection", "com.apple.developer.storekit.request-data", "com.apple.developer.networking.multicast.unknown", "get-task-allow"] {
+            var logged: [String] = []
+            XCTAssertThrowsError(try EntitlementResolver.resolve(requested: [key: true, "com.apple.developer.networking.multicast": true], profile: testProfile(), bundleIdentifier: "com.example.app", policy: .strict) { logged.append($0) }) { error in
+                XCTAssertEqual((error as? LoadSideError)?.code, "entitlements.unsupported")
+                XCTAssertTrue((error as? LoadSideError)?.message.contains("“\(key)”") == true)
+            }
+            XCTAssertEqual(logged.count, 1)
+            XCTAssertTrue(logged.first?.contains("Multicast Networking") == true)
+        }
+    }
+
+    func testAssociatedDomainsProfileWildcardPreservesRequestedArrayInBothPolicies() throws {
+        let key = "com.apple.developer.associated-domains"
+        let domains = ["applinks:www.youtube.com", "applinks:youtu.be", "webcredentials:google.com", "applinks:*.example.com"]
+        for allowed: Any in ["*", ["*"]] {
+            let profile = try testProfile(extras: [key: allowed])
+            for policy in EntitlementPolicy.allCases {
+                let result = try EntitlementResolver.resolve(requested: [key: domains], profile: profile, bundleIdentifier: "com.example.app", policy: policy)
+                XCTAssertEqual(result.values[key] as? [String], domains)
+                XCTAssertTrue(result.warnings.isEmpty)
+            }
+            let unrequested = try EntitlementResolver.resolve(requested: [:], profile: profile, bundleIdentifier: "com.example.app", policy: .strict)
+            XCTAssertNil(unrequested.values[key])
+        }
+    }
+
+    func testAssociatedDomainsStillRequiresProfileAuthorizationAndArrayClaims() throws {
+        let key = "com.apple.developer.associated-domains"
+        for allowed: Any in [false, "applinks:example.com", ["applinks:other.example.com"]] {
+            XCTAssertThrowsError(try EntitlementResolver.resolve(requested: [key: ["applinks:example.com"]], profile: testProfile(extras: [key: allowed]), bundleIdentifier: "com.example.app", policy: .strict))
+        }
+        XCTAssertThrowsError(try EntitlementResolver.resolve(requested: [key: ["applinks:example.com"]], profile: testProfile(), bundleIdentifier: "com.example.app", policy: .strict))
+        for malformed: Any in ["*", ["*"], [""], [true], [["applinks:example.com"]], ["applinks:example.com", 1]] {
+            XCTAssertThrowsError(try EntitlementResolver.resolve(requested: [key: malformed], profile: testProfile(extras: [key: "*"]), bundleIdentifier: "com.example.app", policy: .strict))
+        }
+        let exactDomains = ["applinks:*.example.com"]
+        let exact = try EntitlementResolver.resolve(requested: [key: exactDomains], profile: testProfile(extras: [key: exactDomains]), bundleIdentifier: "com.example.app", policy: .strict)
+        XCTAssertEqual(exact.values[key] as? [String], exactDomains)
+        // The special profile representation cannot broaden unrelated entitlements.
+        XCTAssertFalse(EntitlementResolver.isAllowed(["group.example"], by: "*"))
+        XCTAssertFalse(EntitlementResolver.isAllowed(["TEAM.*"], by: ["TEAM.*"]))
+    }
+
     func testIdentityMigrationPreservesAuthorizedSharedGroups() throws {
         let result = try EntitlementResolver.resolve(requested: ["application-identifier": "OLD.com.old.app", "keychain-access-groups": ["OLD.com.old.app", "OLD.shared"]], profile: testProfile(), bundleIdentifier: "com.example.app", policy: .strict)
         XCTAssertEqual(result.values["keychain-access-groups"] as? [String], ["NEWTEAM.com.example.app", "NEWTEAM.shared"])
@@ -59,6 +140,27 @@ final class EntitlementTests: XCTestCase {
     }
 
     func testExpiredProfileRejected() { XCTAssertThrowsError(try testProfile(expiration: Date().addingTimeInterval(-1))) }
+
+    func testExactMainAppProfileCannotAuthorizeExtensionAfterIdentifierRewrite() throws {
+        let profile = try testProfile(id: "NEWTEAM.com.target.app")
+        let plan = try SigningPreflight.suggestBundleIdentifier(original: "com.original.app", profiles: [profile], policy: .automatic)
+        let extensionID = plan.identifier(forOriginalBundleIdentifier: "com.original.app.OpenYoutube.Extension")
+        XCTAssertEqual(extensionID, "com.target.app.OpenYoutube.Extension")
+        XCTAssertFalse(profile.matches(bundleIdentifier: extensionID))
+        XCTAssertThrowsError(try ProvisioningProfile.select(from: [profile], bundleIdentifier: extensionID, certificate: Data([1, 2, 3]))) { error in
+            XCTAssertEqual((error as? LoadSideError)?.code, "profile.noMatch")
+        }
+    }
+
+    func testWildcardProfileCanBeReusedForMainAppAndExtension() throws {
+        let profile = try testProfile()
+        for identifier in ["com.example.app", "com.example.app.OpenYoutube.Extension"] {
+            XCTAssertEqual(try ProvisioningProfile.select(from: [profile], bundleIdentifier: identifier, certificate: Data([1, 2, 3])).uuid, profile.uuid)
+            let claims = try EntitlementResolver.resolve(requested: [:], profile: profile, bundleIdentifier: identifier, policy: .strict)
+            XCTAssertEqual(claims.values["application-identifier"] as? String, "NEWTEAM.\(identifier)")
+        }
+        XCTAssertThrowsError(try ProvisioningProfile.select(from: [profile], bundleIdentifier: "com.example.app.OpenYoutube.Extension", certificate: Data([9])))
+    }
 
     func testProfilePlatformCannotAuthorizeDifferentDevicePlatform() throws {
         let profile = try testProfile()

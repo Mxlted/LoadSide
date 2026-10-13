@@ -12,8 +12,11 @@ public struct IPAInspection: Codable, Sendable {
 public struct BundleIdentifierSuggestion: Sendable {
     public let originalIdentifier: String
     public let effectiveIdentifier: String
+    /// Identifier used to select the main signing profile, independent of Info.plist.
+    public let profileBundleIdentifier: String
     public let reason: String
     public var changesIdentifier: Bool { originalIdentifier != effectiveIdentifier }
+    public var usesProfileIdentity: Bool { effectiveIdentifier != profileBundleIdentifier }
 
     public func identifier(forOriginalBundleIdentifier identifier: String) -> String {
         if identifier == originalIdentifier { return effectiveIdentifier }
@@ -48,40 +51,58 @@ public enum SigningPreflight {
     /// Pure App ID planning. Callers must label this as profile-only preflight:
     /// the signing engine separately verifies that the selected P12 is authorized.
     public static func suggestBundleIdentifier(original: String, profiles: [ProvisioningProfile],
-                                                policy: BundleIdentifierPolicy = .automatic,
-                                                override: String? = nil) throws -> BundleIdentifierSuggestion {
+                                                policy: BundleIdentifierPolicy = .preserve,
+                                                override: String? = nil, nestedOriginalIdentifiers: [String] = []) throws -> BundleIdentifierSuggestion {
         guard !profiles.isEmpty else { throw LoadSideError("preflight.profiles", "Add a provisioning profile to resolve the app’s bundle identifier.") }
         if let override = override?.trimmingCharacters(in: .whitespacesAndNewlines), !override.isEmpty {
             try validateIdentifier(override)
             guard profiles.contains(where: { $0.matches(bundleIdentifier: override) }) else {
                 throw LoadSideError("bundleIdentifier.overrideNotAuthorized", "The supplied profiles do not authorize the requested bundle identifier \(override). Allowed App IDs: \(patterns(profiles)).", recovery: "Enter an identifier allowed by the profile, select Automatic, or supply a matching profile. A certificate cannot expand a profile’s App ID authorization.")
             }
-            return BundleIdentifierSuggestion(originalIdentifier: original, effectiveIdentifier: override, reason: "Using the explicit bundle identifier override. The signing certificate is checked separately.")
+            return BundleIdentifierSuggestion(originalIdentifier: original, effectiveIdentifier: override, profileBundleIdentifier: override, reason: "Using the explicit bundle identifier override. The signing certificate is checked separately.")
         }
         try validateIdentifier(original)
         if profiles.contains(where: { $0.matches(bundleIdentifier: original) }) {
-            return BundleIdentifierSuggestion(originalIdentifier: original, effectiveIdentifier: original, reason: "The supplied profiles authorize the original bundle identifier. The signing certificate is checked separately.")
-        }
-        guard policy == .automatic else {
-            throw LoadSideError("bundleIdentifier.preservedNotAuthorized", "Preserve mode keeps \(original), but the supplied profiles authorize \(patterns(profiles)).", recovery: "Select Automatic to use an unambiguous profile App ID, enter a permitted override, or add a profile matching the original app.")
+            return BundleIdentifierSuggestion(originalIdentifier: original, effectiveIdentifier: original, profileBundleIdentifier: original, reason: "The supplied profiles authorize the original bundle identifier. The signing certificate is checked separately.")
         }
         let exact = Set(profiles.map(\.bundleIdentifierPattern).filter { !$0.contains("*") })
-        guard exact.count == 1, let identifier = exact.first else {
+        // Recognize a main profile plus profiles for the actual nested bundles,
+        // without guessing from an arbitrary shared reverse-DNS prefix.
+        // Profiles matching retained original child IDs are not main candidates.
+        let nested = Set(nestedOriginalIdentifiers)
+        let mainCandidates = exact.subtracting(nested)
+        let candidates = mainCandidates.filter { candidate in
+            let mapped = Set([candidate] + nestedOriginalIdentifiers.filter { $0.hasPrefix(original + ".") }.map {
+                candidate + $0.dropFirst(original.count)
+            })
+            return exact.isSubset(of: mapped.union(nested))
+        }
+        guard candidates.count == 1, let identifier = candidates.first else {
             if exact.isEmpty {
                 throw LoadSideError("bundleIdentifier.overrideRequired", "The original identifier \(original) does not match the profile wildcard patterns: \(patterns(profiles)).", recovery: "Enter an explicit bundle identifier within an allowed pattern. LoadSide will not invent an app identity from a wildcard.")
             }
-            throw LoadSideError("bundleIdentifier.ambiguous", "Several exact profile App IDs could replace \(original): \(exact.sorted().prefix(6).joined(separator: ", ")).", recovery: "Choose the main app’s bundle identifier explicitly, or remove unrelated profiles. Additional retained extensions may still require their own profiles.")
+            throw LoadSideError("bundleIdentifier.ambiguous", "The main signing profile for \(original) is not unambiguous. Supplied exact App IDs: \(exact.sorted().prefix(6).joined(separator: ", ")).", recovery: "Supply one main profile plus any matching nested profiles, or enter an authorized bundle identifier override. LoadSide will not guess which unrelated profile should provide the main signing identity.")
         }
         try validateIdentifier(identifier)
-        return BundleIdentifierSuggestion(originalIdentifier: original, effectiveIdentifier: identifier,
-                                          reason: "Automatic selection uses the only exact profile App ID, \(identifier), because the original ID is not authorized. Prefix-related nested IDs will follow this change. The signing certificate is checked separately.")
+        if policy == .preserve {
+            return BundleIdentifierSuggestion(originalIdentifier: original, effectiveIdentifier: original, profileBundleIdentifier: identifier,
+                                              reason: "Keeps \(original) in the app’s metadata and uses the supplied profile’s signing identity for \(identifier). These identifiers differ; device installation and runtime behavior are unverified.")
+        }
+        return BundleIdentifierSuggestion(originalIdentifier: original, effectiveIdentifier: identifier, profileBundleIdentifier: identifier,
+                                          reason: "Automatic selection uses the unambiguous main profile App ID, \(identifier), accounting for profiles matching the app’s nested bundles. Prefix-related nested IDs will follow this change. The signing certificate is checked separately.")
     }
 
     static func resolveForSigning(original: String, profiles: [ProvisioningProfile], certificate: Data,
-                                  policy: BundleIdentifierPolicy, override: String?) throws -> BundleIdentifierSuggestion {
+                                  policy: BundleIdentifierPolicy, override: String?, nestedOriginalIdentifiers: [String] = []) throws -> BundleIdentifierSuggestion {
         let authorized = profiles.filter { $0.developerCertificates.contains(certificate) }
         guard !authorized.isEmpty else { throw LoadSideError("profile.noMatch", "No supplied profile contains the selected signing certificate.", recovery: "Use a P12 whose exact certificate is listed in the profile’s DeveloperCertificates.") }
-        return try suggestBundleIdentifier(original: original, profiles: authorized, policy: policy, override: override)
+        let requested = override?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if policy == .preserve, requested == nil || requested == "",
+           profiles.contains(where: { $0.matches(bundleIdentifier: original) }),
+           !authorized.contains(where: { $0.matches(bundleIdentifier: original) }) {
+            throw LoadSideError("profile.noMatch", "The supplied profile matching \(original) does not contain the selected signing certificate.", recovery: "Use its matching P12 or replace that profile. Profile identity reuse cannot hide an incompatible matching profile.")
+        }
+        return try suggestBundleIdentifier(original: original, profiles: authorized, policy: policy, override: override, nestedOriginalIdentifiers: nestedOriginalIdentifiers)
     }
 
     static func validateIdentifier(_ identifier: String) throws {

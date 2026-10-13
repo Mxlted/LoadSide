@@ -27,7 +27,7 @@ jobs:
         run: scripts/check.sh
       - name: Package universal local build
         if: matrix.runner == 'macos-15'
-        run: scripts/package.sh --local
+        run: scripts/package.sh --local --archive
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         if: matrix.runner == 'macos-15'
         with:

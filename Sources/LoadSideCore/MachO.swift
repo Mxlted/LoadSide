@@ -9,6 +9,8 @@ public struct MachOSlice: Sendable {
     public let installName: String?
     public let rpaths: [String]
     public let platform: UInt32?
+    /// Structural presence of LC_CODE_SIGNATURE, regardless of payload validity.
+    public let hasCodeSignature: Bool
     public var architecture: String {
         switch cpuType {
         case 0x0100000c: return cpuSubtype & 0x00ffffff == 2 ? "arm64e" : "arm64"
@@ -22,6 +24,7 @@ public struct MachOSlice: Sendable {
 public struct MachOInfo: Sendable {
     public let slices: [MachOSlice]
     public var isEncrypted: Bool { slices.contains(where: \.isEncrypted) }
+    public var hasCodeSignature: Bool { slices.contains(where: \.hasCodeSignature) }
     public var architectures: [String] { slices.map(\.architecture) }
 }
 
@@ -247,7 +250,8 @@ public enum MachO {
         } else { contentStart = nil }
         return ParsedSlice(offset: offset, size: size, little: little, is64: is64, headerSize: header, commandSize: commandSize, commands: commands,
                            contentStart: contentStart, info: MachOSlice(cpuType: read32(bytes, offset + 4, little), cpuSubtype: read32(bytes, offset + 8, little),
-                           fileType: read32(bytes, offset + 12, little), isEncrypted: encrypted, dependencies: dependencies, installName: installName, rpaths: rpaths, platform: platform))
+                           fileType: read32(bytes, offset + 12, little), isEncrypted: encrypted, dependencies: dependencies, installName: installName, rpaths: rpaths, platform: platform,
+                           hasCodeSignature: commands.contains { $0.kind == 0x1d }))
     }
     private static func read32(_ bytes: [UInt8], _ offset: Int, _ little: Bool) -> UInt32 {
         var value: UInt32 = 0

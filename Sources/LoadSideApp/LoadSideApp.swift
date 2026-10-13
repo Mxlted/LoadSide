@@ -10,26 +10,27 @@ struct LoadSideApp: App {
         WindowGroup("LoadSide") {
             MainView(model: model)
                 .tint(Palette.accent)
-                .frame(minWidth: 960, minHeight: 680)
+                .frame(minWidth: 960, minHeight: 600)
                 .onOpenURL { model.accept([$0]) }
                 .onAppear { delegate.model = model }
         }
-        .windowToolbarStyle(.unifiedCompact)
-        .defaultSize(width: 1120, height: 820)
+        .windowToolbarStyle(.unified)
+        .defaultSize(width: 1280, height: 720)
         .commands {
             CommandGroup(replacing: .newItem) {
                 Button("Open IPA…", action: model.chooseIPA).keyboardShortcut("o").disabled(model.isRunning)
-                Button("New Signing Session", action: model.reset).keyboardShortcut("n").disabled(model.isRunning || model.isManagingSigningProfiles)
+                Button("New Session", action: model.reset).keyboardShortcut("n").disabled(model.isRunning || model.isManagingSigningProfiles)
             }
-            CommandMenu("Signing") {
-                Button("Sign & Export…", action: model.beginSigning).keyboardShortcut("r").disabled(!model.canSign)
-                Button("Cancel Signing", action: model.cancel).keyboardShortcut(".").disabled(!model.isRunning || model.isCancelling)
+            CommandMenu("Workflow") {
+                Button(model.jobMode == .sign ? "Sign & Export…" : "Inject & Export…", action: model.beginSigning).keyboardShortcut("r").disabled(!model.canSign)
+                Button("Cancel Export", action: model.cancel).keyboardShortcut(".").disabled(!model.isRunning || model.isCancelling)
                 Divider()
                 Button("Import Certificate…", action: model.chooseCertificate).disabled(model.isRunning)
                 Button("Add Provisioning Profiles…", action: model.chooseProfiles).disabled(model.isRunning)
                 Button("Add Injection…", action: model.chooseInjections).disabled(model.isRunning)
                 Divider()
                 Button("Signing Profiles") { model.section = .signingProfiles }.keyboardShortcut("2")
+                Button("Local Library") { model.section = .library }.keyboardShortcut("3")
             }
             CommandGroup(replacing: .help) {
                 Button("LoadSide Help") { model.section = .guide }
@@ -48,9 +49,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard model?.isRunning == true else { return .terminateNow }
         let alert = NSAlert()
-        alert.messageText = "A signing operation is still running"
+        alert.messageText = "An export is still running"
         alert.informativeText = "Keep LoadSide open while it finishes, or cancel the operation before quitting."
-        alert.addButton(withTitle: "Keep Signing")
+        alert.addButton(withTitle: "Keep Exporting")
         alert.addButton(withTitle: "Cancel Operation")
         if alert.runModal() == .alertSecondButtonReturn { model?.cancel() }
         return .terminateCancel
@@ -59,67 +60,103 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 struct MainView: View {
     @ObservedObject var model: WorkspaceModel
+    @State private var sidebarVisible = true
+
+    private var title: String {
+        model.section == .workspace
+            ? (model.ipaInspection?.displayName ?? model.ipa?.deletingPathExtension().lastPathComponent ?? "Prepare an app")
+            : model.section.rawValue
+    }
+
     var body: some View {
         HStack(spacing: 0) {
-            sidebar
-            Divider()
-            Group {
+            if sidebarVisible {
+                sidebar.frame(width: 182)
+                Divider()
+            }
+            ZStack(alignment: .topLeading) {
                 switch model.section {
                 case .workspace: WorkspaceView(model: model)
                 case .signingProfiles: SigningProfilesView(model: model)
+                case .library: LocalLibraryView(model: model)
                 case .activity: ActivityView(model: model)
                 case .guide: GuideView()
                 }
-            }.frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Palette.background)
         }
         .background(Palette.background)
-        .toolbar {
-            ToolbarItem(placement: .principal) {
-                HStack(spacing: 8) {
-                    Text(model.section == .workspace ? (model.ipaInspection?.displayName ?? model.ipa?.deletingPathExtension().lastPathComponent ?? "Sign an app") : model.section.rawValue)
-                        .font(.system(size: 13, weight: .semibold)).lineLimit(1)
-                    if model.isRunning {
-                        ProgressView().controlSize(.mini)
-                        Text(model.isCancelling ? "Cancelling…" : "Signing…").font(.system(size: 11)).foregroundStyle(.secondary)
-                    }
-                }
-            }
-            ToolbarItem(placement: .automatic) {
-                Button { model.reset() } label: { Image(systemName: "doc.badge.plus") }
-                    .help("New signing session (⌘N)").accessibilityLabel("New signing session").disabled(model.isRunning || model.isManagingSigningProfiles)
-            }
-        }
+        .navigationTitle(title)
+        .toolbar { workspaceToolbar }
         .alert("Unable to complete action", isPresented: Binding(get: { model.notice != nil }, set: { if !$0 { model.notice = nil } })) {
             Button("OK") { model.notice = nil }
         } message: { Text(model.notice ?? "") }
     }
 
-    private var sidebar: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 8) {
-                Image(systemName: "signature").font(.system(size: 17, weight: .medium)).foregroundStyle(Palette.accent)
-                    .frame(width: 29, height: 29).background(Palette.accent.opacity(0.1), in: RoundedRectangle(cornerRadius: 7))
-                Text("LoadSide").font(.system(size: 15, weight: .semibold))
-            }.padding(.horizontal, 9).padding(.top, 17).padding(.bottom, 24)
-            ForEach(AppSection.allCases) { section in
-                Button { model.section = section } label: {
-                    HStack(spacing: 10) {
-                        Image(systemName: section.symbol).font(.system(size: 14)).frame(width: 20)
-                        Text(section.rawValue).font(.system(size: 12, weight: model.section == section ? .semibold : .regular))
-                        Spacer(minLength: 0)
-                        if section == .activity, model.isRunning { Circle().fill(Palette.accent).frame(width: 5, height: 5) }
-                    }
-                    .foregroundStyle(model.section == section ? Color.primary : Color.secondary)
-                    .padding(.horizontal, 10).padding(.vertical, 9)
-                    .background(model.section == section ? Palette.accent.opacity(0.12) : .clear, in: RoundedRectangle(cornerRadius: 6))
-                    .contentShape(Rectangle())
-                }.buttonStyle(.plain).accessibilityAddTraits(model.section == section ? .isSelected : [])
+    @ToolbarContentBuilder private var workspaceToolbar: some ToolbarContent {
+        ToolbarItem(placement: .navigation) {
+            Button { sidebarVisible.toggle() } label: { Label("Toggle Sidebar", systemImage: "sidebar.left") }
+                .help(sidebarVisible ? "Hide sidebar" : "Show sidebar")
+        }
+        if model.isRunning {
+            ToolbarItem(placement: .principal) {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.mini)
+                    Text(model.isCancelling ? "Cancelling…" : model.jobMode == .sign ? "Signing…" : "Injecting…").font(.system(size: 12)).foregroundStyle(.secondary)
+                }
             }
-            Spacer()
-            VStack(alignment: .leading, spacing: 5) {
-                Label("Local signing", systemImage: "lock").font(.system(size: 10))
-                Text(Bundle.main.infoDictionary?["LoadSideVersion"] as? String ?? "0.1.0-rc.2").font(.system(size: 10, design: .monospaced))
-            }.foregroundStyle(.tertiary).padding(.horizontal, 10).padding(.bottom, 18)
-        }.padding(.horizontal, 10).frame(width: 172).frame(maxHeight: .infinity).background(.ultraThinMaterial)
+        }
+        ToolbarItem(placement: .automatic) {
+            Button { model.reset() } label: { Label("New Session", systemImage: "doc.badge.plus") }
+                .help("New session (⌘N)").accessibilityLabel("New session")
+                .disabled(model.isRunning || model.isManagingSigningProfiles)
+        }
+    }
+
+    private var sidebar: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            HStack(spacing: 10) {
+                SymbolTile(symbol: "signature", size: 36)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("LoadSide").font(.system(size: 16, weight: .semibold))
+                    Text("Your app workspace").font(.system(size: 11)).foregroundStyle(.secondary)
+                }
+            }.padding(.horizontal, 6).padding(.top, 8)
+            VStack(spacing: 5) {
+                ForEach(AppSection.allCases) { section in
+                    Button { model.section = section } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: section.symbol).frame(width: 20)
+                            Text(section.rawValue).font(.system(size: 12, weight: model.section == section ? .semibold : .regular))
+                            Spacer(minLength: 0)
+                            if section == .activity, model.isRunning {
+                                ProgressView().controlSize(.mini).accessibilityLabel("Export in progress")
+                            }
+                        }
+                        .padding(.horizontal, 9).padding(.vertical, 10)
+                        .foregroundStyle(model.section == section ? Color.primary : Color.secondary)
+                        .background(model.section == section ? Palette.accent.opacity(0.16) : .clear,
+                                    in: RoundedRectangle(cornerRadius: 10))
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityAddTraits(model.section == section ? .isSelected : [])
+                }
+            }
+            .padding(6)
+            .floatingControlSurface(cornerRadius: 16)
+            Spacer(minLength: 12)
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: "lock.shield").font(.system(size: 13)).accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Prepared on your Mac").font(.system(size: 11, weight: .medium))
+                    Text(Bundle.main.infoDictionary?["LoadSideVersion"] as? String ?? "0.1.0-rc.2")
+                        .font(.system(size: 10, design: .monospaced))
+                }
+            }.foregroundStyle(.secondary).padding(.horizontal, 8).padding(.bottom, 4)
+        }
+        .padding(12)
+        .frame(maxHeight: .infinity)
     }
 }

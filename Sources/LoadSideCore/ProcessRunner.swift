@@ -75,9 +75,12 @@ private final class ManagedChild: @unchecked Sendable {
     let process = Process()
     private let lock = NSLock()
     private var stopped = false
+    private var terminated = false
+    private var terminationWaiter: CheckedContinuation<Void, Never>?
     func launch() throws {
         lock.lock(); defer { lock.unlock() }
         if stopped { throw CancellationError() }
+        process.terminationHandler = { [weak self] _ in self?.didTerminate() }
         try process.run()
     }
     func stop() {
@@ -86,8 +89,25 @@ private final class ManagedChild: @unchecked Sendable {
         if process.isRunning { kill(process.processIdentifier, SIGKILL) }
     }
     func waitForTermination() async {
-        // Reap a killed child before the caller removes its keychain/workspace.
-        // This detached wait is not itself cancelled with the signing task.
-        await Task.detached { self.process.waitUntilExit() }.value
+        // Foundation's termination callback runs after it reaps the child.
+        // waitUntilExit on a detached Swift task can stall its thread's run loop.
+        await withCheckedContinuation { continuation in
+            lock.lock()
+            if terminated {
+                lock.unlock()
+                continuation.resume()
+            } else {
+                terminationWaiter = continuation
+                lock.unlock()
+            }
+        }
+    }
+    private func didTerminate() {
+        lock.lock()
+        terminated = true
+        let waiter = terminationWaiter
+        terminationWaiter = nil
+        lock.unlock()
+        waiter?.resume()
     }
 }

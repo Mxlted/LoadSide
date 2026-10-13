@@ -26,9 +26,11 @@ jobs:
         with:
           persist-credentials: false
       - name: Require the version tag
+        id: version
         shell: bash
         run: |
           [[ "$GITHUB_REF" == "refs/tags/v$(cat VERSION)" ]] || { echo 'Run from the matching version tag.'; exit 1; }
+          echo "version=$(cat VERSION)" >> "$GITHUB_OUTPUT"
       - name: Validate qualification reference and exact commit
         shell: bash
         env:
@@ -57,6 +59,9 @@ jobs:
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: LoadSide-qualified-release
-          path: dist/*
+          path: |
+            dist/LoadSide-${{ steps.version.outputs.version }}-macOS-universal.zip
+            dist/LoadSide-${{ steps.version.outputs.version }}-macOS-universal.zip.sha256
+            dist/qualification-reference.txt
           if-no-files-found: error
           retention-days: 90

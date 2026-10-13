@@ -47,12 +47,15 @@ public struct SigningEngine: Sendable {
         defer { withExtendedLifetime(identity) {} }
         emit(.credentials, 0.25, "Validated signing identity: \(identity.name).")
         let identifierPlan = try SigningPreflight.resolveForSigning(original: main.identifier, profiles: profiles, certificate: identity.certificate,
-                                                                   policy: request.bundleIdentifierPolicy, override: request.bundleIdentifier)
+                                                                   policy: request.bundleIdentifierPolicy, override: request.bundleIdentifier,
+                                                                   nestedOriginalIdentifiers: bundles.filter { $0.requiresProfile && $0.url != mainApp }.map(\.identifier))
         if identifierPlan.changesIdentifier {
             try BundleInventory.rewriteIdentifiers(in: bundles, original: main.identifier, replacement: identifierPlan.effectiveIdentifier)
             let warning = "Changed bundle identifier \(main.identifier) → \(identifierPlan.effectiveIdentifier) to match the selected profile. Prefix-related nested identifiers follow this change; existing app data and runtime bundle-identifier checks are not migrated."
             warnings.append(warning)
             emit(.credentials, 0.27, warning, .warning)
+        } else {
+            emit(.credentials, 0.27, "Keeping the original bundle identifier: \(main.identifier).")
         }
         if let name = request.displayName?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty {
             var info = try BundleInventory.readInfo(main.url.appendingPathComponent("Info.plist"))
@@ -64,20 +67,39 @@ public struct SigningEngine: Sendable {
         guard let updatedMain = bundles.first(where: { $0.url == mainApp }) else { throw LoadSideError("ipa.main", "The main app could not be read after metadata updates.") }
         emit(.entitlements, 0.30, "Matching a profile and resolving entitlements for each app and extension.")
         var entitlementFiles: [URL: URL] = [:]
+        var entitlementWarnings: [String] = []
         var teams = Set<String>()
+        let mainProfile = try ProvisioningProfile.select(from: profiles, bundleIdentifier: identifierPlan.profileBundleIdentifier, certificate: identity.certificate)
         for (index, bundle) in bundles.filter(\.requiresProfile).enumerated() {
             try Task.checkCancellation()
-            let profile: ProvisioningProfile
+            let selection: BundleProfileSelection
             do {
-                profile = try ProvisioningProfile.select(from: profiles, bundleIdentifier: bundle.identifier, certificate: identity.certificate)
+                if bundle.url == mainApp {
+                    selection = BundleProfileSelection(profile: mainProfile, usesProfileIdentity: identifierPlan.usesProfileIdentity)
+                } else {
+                    selection = try ProvisioningProfile.selectForBundle(from: profiles, bundleIdentifier: bundle.identifier,
+                        certificate: identity.certificate, mainProfile: mainProfile, mainBundleIdentifier: updatedMain.identifier,
+                        isExtension: bundle.url.pathExtension.lowercased() == "appex", policy: request.extensionProfilePolicy)
+                }
             } catch let error as LoadSideError where error.code == "profile.noMatch" {
                 if bundle.url.pathExtension.lowercased() == "appex" {
-                    throw LoadSideError("profile.extensionNoMatch", "The retained extension \(bundle.identifier) has no matching profile for the selected certificate. The main app’s profile does not automatically authorize extension IDs.", recovery: "Add a profile for this extension, or explicitly enable Remove Extensions to omit extension functionality. The original IPA will remain unchanged.")
+                    let policyRecovery = request.extensionProfilePolicy == .matching
+                        ? "Experimental main-profile reuse is available for child extensions of an exact main-app profile; installation and extension behavior remain unverified."
+                        : "Experimental reuse applies only to child extensions of the main app with an exact main-app profile; it cannot replace an incompatible supplied extension profile."
+                    throw LoadSideError("profile.extensionNoMatch", "The retained extension \(bundle.identifier) has no usable profile for the selected certificate. \(error.message)", recovery: "Add an Apple-issued profile authorizing \(bundle.identifier) and containing the same signing certificate. A matching wildcard profile may cover several bundles. \(policyRecovery) Remove Extensions is an optional fallback that disables extension functionality.")
                 }
                 if bundle.url != mainApp {
                     throw LoadSideError("profile.nestedAppNoMatch", "Nested app \(bundle.identifier) needs its own matching profile for the selected certificate.", recovery: "Add a matching profile for this nested app. Remove Extensions does not remove nested apps such as Watch apps.")
                 }
                 throw error
+            }
+            let profile = selection.profile
+            if selection.usesProfileIdentity {
+                let warning = bundle.url == mainApp
+                    ? "Original-ID compatibility: retained bundle identifier \(bundle.identifier) with signing application-identifier \(profile.applicationIdentifier) from profile “\(profile.name)”. These identifiers differ. Keychain access, file importing, app groups, and other features may behave differently. Device installation and runtime behavior are unverified."
+                    : "Extension compatibility: retained \(bundle.identifier) with signing application-identifier \(profile.applicationIdentifier) from main profile “\(profile.name)”. These identifiers differ. The app and extension share a signing identity and may share keychain access; file importing, app groups, and other extension features may fail. Device installation and extension behavior are unverified."
+                warnings.append(warning)
+                emit(.entitlements, 0.30, warning, .warning)
             }
             let executableInfo = try MachO.inspect(bundle.executable)
             guard executableInfo.slices.allSatisfy({ $0.platform.map { profile.supports(machOPlatform: $0) } ?? true }) else {
@@ -93,8 +115,10 @@ public struct SigningEngine: Sendable {
                 throw LoadSideError("profile.appStore", "Profile “\(profile.name)” is an App Store profile and cannot authorize direct installation.", recovery: "Use a Development, Ad Hoc, or Enterprise profile for sideloading.")
             }
             teams.insert(profile.teamIdentifier)
-            let resolved = try EntitlementResolver.resolve(requested: originalEntitlements[bundle.url] ?? [:], profile: profile, bundleIdentifier: bundle.identifier, policy: request.entitlementPolicy)
-            warnings += resolved.warnings
+            let resolved = try EntitlementResolver.resolve(requested: originalEntitlements[bundle.url] ?? [:], profile: profile, bundleIdentifier: bundle.identifier, policy: request.entitlementPolicy, useProfileIdentity: selection.usesProfileIdentity) { warning in
+                entitlementWarnings.append(warning)
+                emit(.entitlements, 0.30 + 0.08 * Double(index) / Double(bundles.count), warning, .warning)
+            }
             let entitlementFile = workspace.appendingPathComponent("entitlements-\(index).plist")
             try PropertyListSerialization.data(fromPropertyList: resolved.values, format: .xml, options: 0).write(to: entitlementFile, options: .atomic)
             entitlementFiles[bundle.url] = entitlementFile
@@ -118,6 +142,7 @@ public struct SigningEngine: Sendable {
         let targets = try BundleInventory.signingTargets(in: mainApp)
         warnings.append("Certificate/profile checks are offline. Apple revocation status and device installation eligibility are not verified by export.")
         for warning in warnings { emit(.entitlements, 0.46, warning, .warning) }
+        warnings += entitlementWarnings
         let diagnosticRoot = extracted.resolvingSymlinksInPath().standardizedFileURL.path + "/"
         for (index, target) in targets.enumerated() {
             try Task.checkCancellation()
@@ -153,10 +178,14 @@ public struct SigningEngine: Sendable {
         return SigningResult(output: request.output, bundleIdentifier: updatedMain.identifier,
                              displayName: updatedMain.info["CFBundleDisplayName"] as? String ?? updatedMain.info["CFBundleName"] as? String ?? updatedMain.url.deletingPathExtension().lastPathComponent,
                              certificateName: identity.name, teamIdentifier: team, signedCodeCount: targets.count,
-                             injectedLibraryCount: injectedCount, warnings: warnings, sha256: hash)
+                             injectedLibraryCount: injectedCount, warnings: warnings, sha256: hash,
+                             bundleVersion: updatedMain.info["CFBundleVersion"] as? String)
     }
 
     static func validate(_ request: SigningRequest) throws {
+        guard !request.removeExtensions || request.extensionProfilePolicy == .matching else {
+            throw LoadSideError("request.extensionPolicy", "Choose extension removal or experimental profile reuse, not both.")
+        }
         guard !request.profiles.isEmpty else { throw LoadSideError("request.profiles", "Add at least one provisioning profile.") }
         guard request.ipa.isFileURL, try request.ipa.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true else { throw LoadSideError("request.ipa", "The source IPA must be a regular local file.") }
         guard request.output.isFileURL, request.output.pathExtension.lowercased() == "ipa" else { throw LoadSideError("request.output", "Choose a local output file ending in .ipa.") }
@@ -197,7 +226,14 @@ enum BundleInventory {
         let payload = extracted.appendingPathComponent("Payload", isDirectory: true)
         let payloadType = try payload.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
         guard payloadType.isDirectory == true, payloadType.isSymbolicLink != true else { throw LoadSideError("ipa.payload", "Payload must be a real directory.") }
-        let apps = try FileManager.default.contentsOfDirectory(at: payload, includingPropertiesForKeys: [.isDirectoryKey]).filter { $0.pathExtension.lowercased() == "app" }
+        let apps = try FileManager.default.contentsOfDirectory(at: payload, includingPropertiesForKeys: [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey]).filter { url in
+            guard url.pathExtension.lowercased() == "app" else { return false }
+            let values = try url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
+            // Finder can include a regular ._App.app AppleDouble sidecar beside
+            // App.app. It is metadata, not a second application. Directories and
+            // links with that name still undergo the normal app validation.
+            return !(url.lastPathComponent.hasPrefix("._") && values.isRegularFile == true && values.isSymbolicLink != true)
+        }
         guard apps.count == 1, let mainApp = apps.first else { throw LoadSideError("ipa.payload", "An IPA must contain exactly one top-level Payload/*.app.") }
         let mainType = try mainApp.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
         guard mainType.isDirectory == true, mainType.isSymbolicLink != true else { throw LoadSideError("ipa.payload", "The top-level app must be a real directory.") }
