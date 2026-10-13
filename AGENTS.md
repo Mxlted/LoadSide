@@ -31,7 +31,13 @@ Use Context7 MCP for current library/framework/SDK/API/CLI documentation: resolv
 
 ## Git and release
 
-Use focused commits with imperative messages. Make meaningful commits whenever a reasonable, coherent set of changes is complete and relevant verification has passed; do not let completed work accumulate into one large uncommitted batch. Stage only changes belonging to that commit, preserving unrelated in-progress work. No force pushes or history rewriting. Run `scripts/check.sh` before a release. Release packaging must fail closed for missing production signing/notarization credentials unless local mode was explicitly selected. A public release requires the qualification checklist in `docs/RELEASING.md`; outstanding device tests are release blockers, not assumed passes.
+Keep commits meaningful, cohesive, and logically organized. Make commits whenever a reasonable, coherent set of changes is complete and relevant verification has passed; avoid unnecessary fragmentation or letting completed work accumulate into one large uncommitted batch. Stage only changes belonging to that commit, preserving unrelated in-progress work. Use clear, professional, imperative commit messages that accurately describe the final consolidated change.
+
+Proactively amend, squash, or consolidate commits when appropriate and safe, especially when newer commits fix, refine, or expand the same logical change. Prefer amending the latest commit when continuing that change; squash related work-in-progress commits, follow-up fixes, and minor refinements into a single well-described commit when appropriate. Preserve separate commits for independently meaningful features, changes, or milestones, and retain useful checkpoints during active development. Keep the workflow efficient and maintainable; avoid excessive history cleanup with little practical benefit.
+
+Before rewriting history, verify whether the affected commits are shared or published. Never rewrite shared or published history without explicit authorization, and do not force-push unless explicitly requested.
+
+Run `scripts/check.sh` before a release. Release packaging must fail closed for missing production signing/notarization credentials unless local mode was explicitly selected. A public release requires the qualification checklist in `docs/RELEASING.md`; outstanding device tests are release blockers, not assumed passes.
 
 Keep one current local application at `dist/LoadSide.app` and expose its bundled CLI through `dist/loadside`. Local ZIPs require `scripts/package.sh --local --archive`; production archives remain versioned and non-overwriting. Use `scripts/clean.sh` for generated build/cache cleanup, retaining `dist` by default. Never include imported signing material or user IPA exports in general project cleanup.
 
