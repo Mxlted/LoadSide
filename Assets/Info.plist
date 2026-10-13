@@ -10,8 +10,8 @@
 <key>CFBundleName</key><string>LoadSide</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>0.1.0</string>
-<key>CFBundleVersion</key><string>2</string>
-<key>LoadSideVersion</key><string>0.1.0-rc.2</string>
+<key>CFBundleVersion</key><string>3</string>
+<key>LoadSideVersion</key><string>0.1.0-rc.3</string>
 <key>LoadSideCommit</key><string>development</string>
 <key>LoadSideBuildType</key><string>local</string>
 <key>LSApplicationCategoryType</key><string>public.app-category.developer-tools</string>

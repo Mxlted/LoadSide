@@ -4,7 +4,7 @@ import LoadSideCore
 
 @main
 struct LoadSideCLI {
-    static let version = "0.1.0-rc.2"
+    static let version = "0.1.0-rc.3"
 
     static func main() async {
         do {

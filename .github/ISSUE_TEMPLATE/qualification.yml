@@ -1,0 +1,50 @@
+name: Release qualification
+description: Record sanitized release candidate evidence for maintainer review
+title: 'Qualify LoadSide '
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Complete the matrix in docs/RELEASING.md for one exact commit. A passing build or this issue alone does not qualify a release.
+        Do not attach credentials, profiles, private keys, customer IPAs, device identifiers, private paths, or unredacted logs.
+  - type: input
+    id: version
+    attributes:
+      label: Candidate version
+      placeholder: 0.1.0-rc.3
+    validations:
+      required: true
+  - type: input
+    id: commit
+    attributes:
+      label: Full source commit SHA
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Test environments
+      description: macOS/Xcode versions, device model and OS, distribution types; no device identifiers.
+    validations:
+      required: true
+  - type: textarea
+    id: results
+    attributes:
+      label: Qualification matrix and results
+      description: Copy the checklist from docs/RELEASING.md and record a result for every applicable case. Explain exclusions and outstanding failures.
+    validations:
+      required: true
+  - type: textarea
+    id: artifacts
+    attributes:
+      label: Artifact and automated evidence
+      description: CI run links, artifact filenames and SHA-256 values, signing/notarization status, and independent download checks actually performed.
+    validations:
+      required: true
+  - type: textarea
+    id: blockers
+    attributes:
+      label: Remaining blockers
+      description: Include incomplete device, accessibility, minimum-macOS, production-signing, notarization, and download verification checks.
+    validations:
+      required: true

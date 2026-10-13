@@ -4,9 +4,9 @@ A release candidate is ready for evaluation when automated tests pass and local 
 
 ## Automated gate
 
-Run `scripts/check.sh` on a clean checkout. CI is configured to run tests and CLI checks on an Apple Silicon macOS runner, then package an ARM64 local build. Workflows pin official GitHub Actions to commit hashes; Dependabot is configured to track updates. GitHub execution remains unverified until a remote is configured and the workflows run. A green compile is not evidence of successful device installation. See [delivery status](STATUS.md) for current local test and credential-backed signing evidence.
+Run `scripts/check.sh` on a clean checkout. CI is configured to run tests and CLI checks on an Apple Silicon macOS runner, then package an ARM64 local build. Workflows pin official GitHub Actions to commit hashes; Dependabot tracks updates. Confirm a successful run for the release commit in [GitHub Actions](https://github.com/Mxlted/LoadSide/actions); a local pass does not establish hosted-runner success. A green compile is not evidence of successful device installation. See [delivery status](STATUS.md) for current local test and credential-backed signing evidence.
 
-The version lives in `VERSION`. Keep the CLI version, UI version, `CHANGELOG.md`, and bundle metadata consistent. Commit all source and documentation changes before tagging. Never include customer archives or signing material in a fixture or artifact.
+The version lives in `VERSION`. Keep the CLI version, UI fallback version, `CHANGELOG.md`, and `Assets/Info.plist` consistent. Use `MAJOR.MINOR.PATCH` with an optional prerelease suffix such as `-rc.3`; prereleases must stay marked as prereleases on GitHub. Packaging rejects malformed versions and stale CLI binaries. Full Git history is required because the bundle build number is the commit count; CI uses `fetch-depth: 0`. Commit all source and documentation changes before tagging. Never include customer archives or signing material in a fixture or artifact.
 
 ## Device qualification gate
 
@@ -44,7 +44,9 @@ dist/loadside version
 
 This maintains one ad-hoc signed ARM64 app at `dist/LoadSide.app`. `dist/loadside` links to the CLI inside that app, so the two entry points always refer to the same build. A verified new package replaces the previous local app. Packaging does not produce a ZIP by default.
 
-For CI or an explicit local distribution archive, run `scripts/package.sh --local --archive`. It additionally emits `LoadSide-<version>-macOS-arm64-local.zip` and its checksum; existing archives and checksums are never overwritten. `--skip-build` is available only for local mode and still requires exactly ARM64 in every packaged executable and verifies the packaged signatures.
+For CI or an explicit local distribution archive, run `scripts/package.sh --local --archive`. It emits `LoadSide-<version>-macOS-arm64-local.zip` and its `.sha256` checksum. Packaging verifies ZIP integrity, extracts the generated archive, checks every Mach-O, verifies the extracted signature, and smoke-tests the extracted CLI version before publishing the files. Existing archives and checksums are never overwritten; a failed publication removes only files created by that attempt. `--skip-build` is available only for local mode and still verifies metadata, signatures, and version consistency.
+
+The bundled `Contents/Resources/BuildInfo.txt` records the version, commit, clean/modified source state, build type, architecture, SDK, minimum macOS, and compiler. This is build provenance, not a claim of bit-for-bit reproducibility: timestamps, signatures, notarization, and ZIP metadata can differ across builds. Python 3 is required for offline documentation checks and exclusive artifact publication; the selected Xcode command-line tools provide it.
 
 Both `check.sh` and `package.sh` use the same warning-as-error flags, avoiding a redundant release rebuild after checks. They use the selected Xcode macOS SDK for compilation and explicitly pass its root to clang's link driver. This works around [Swift's SDK forwarding issue](https://github.com/swiftlang/swift-package-manager/issues/8886), which can stamp the deployment target as the linked SDK and suppress the current native control appearance. Every packaged Mach-O executable must contain only ARM64 and report macOS 14 as its minimum and the actual selected SDK as its build SDK. Stale binaries are rejected even with `--skip-build`; rebuild normally after changing Xcode. This does not raise the app's minimum macOS version.
 
@@ -71,17 +73,23 @@ scripts/package.sh --production
 
 Production packaging always rebuilds the ARM64 app and CLI, signs the helper and app with hardened runtime and a secure timestamp, verifies them, submits to Apple, requires an Accepted notarization status, staples and validates the ticket, and checks Gatekeeper before emitting the final ZIP. Production mode does not accept `--skip-build`. Existing release ZIPs and checksums are not overwritten.
 
-The optional `Qualified release build` workflow uses a protected `production` environment on a dedicated self-hosted Apple Silicon Mac labeled `ARM64` and `loadside-release`. Configure required environment reviewers, the identity/profile variables, and keychain access first. Run it from the matching version tag. Supply `device_qualification` as an issue URL in this repository and `qualification_commit` as the full SHA of the selected tag's commit. Before signing, the workflow checks the URL format and repository and requires the exact commit match.
+### GitHub candidate verification
 
-The protected environment reviewer must inspect the issue and confirm that its evidence completes the qualification matrix for that exact commit. URL and SHA validation alone do not prove that qualification is complete. The workflow uploads artifacts for review; it does not silently publish a GitHub release.
+The manually dispatched **Verify release candidate** workflow runs on an ephemeral GitHub-hosted ARM64 Mac. Supply `device_qualification` as a qualification issue URL in this repository and `qualification_commit` as the full SHA of the selected ref. It checks the exact commit and URL format, runs the complete verification suite, and creates an explicitly local evaluation ZIP with checksums and a candidate record. If run from a tag, that tag must match `VERSION`.
+
+The workflow validates the reference, not the issue contents. A maintainer must review the evidence and complete every applicable matrix item before production signing. Use the release qualification issue template to record sanitized results. The hosted workflow never receives signing credentials, notarizes, creates tags, or publishes a release.
+
+Keep Developer ID and notarytool credentials on the trusted release Mac. Do not register a signing Mac as an unrestricted runner for this public repository: [GitHub warns that self-hosted runners can be persistently compromised by untrusted workflow code](https://docs.github.com/en/actions/reference/security/secure-use#hardening-for-self-hosted-runners). If signing is automated later, review runner isolation, restricted workflow access, ephemeral credentials, and protected environments before enabling it.
 
 ## Publish
 
-1. Configure the intended repository remote and push reviewed commits.
+1. Push reviewed commits to [Mxlted/LoadSide](https://github.com/Mxlted/LoadSide) and require a successful CI run for the exact release commit.
 2. Update this release checklist and `docs/STATUS.md` with evidence. Remove no blocker merely to meet a date.
-3. Create an annotated version tag matching `VERSION` after qualification.
-4. Create a draft GitHub release with the production ZIP, checksum, changelog, compatibility limits, and qualification record.
-5. Download the draft asset to a separate Mac, verify its checksum and Gatekeeper status, and repeat the primary workflow.
+3. Create an annotated `v<VERSION>` tag after qualification; confirm it resolves to the qualified commit. Never move an existing published tag.
+4. Run production packaging from that clean, fully fetched commit. Create a draft GitHub release with the production ZIP, checksum, user-facing notes, compatibility limits, and qualification record. Start from the candidate notes in `docs/releases/`; keep prerelease versions marked as prereleases. Do not attach local CI artifacts.
+5. Download the draft ZIP and checksum to a separate Mac. Run `shasum -a 256 -c LoadSide-<version>-macOS-arm64.zip.sha256`, extract the app, confirm its stapled ticket and Gatekeeper assessment, and repeat the primary workflow using authorized fixtures. Record the actual download hash and results.
 6. Publish the reviewed release. Keep the previous release available for rollback and note any certificate/profile compatibility changes.
 
 Do not publish an RC as stable or a local build as notarized. If signing logic regresses, withdraw the affected download and document which artifacts and workflows are impacted.
+
+Production signing follows [Apple’s notarization requirements](https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution): Developer ID, hardened runtime, a secure timestamp, notarization, and a stapled ticket. A source repository and a release-notes draft can be public while a downloadable application remains blocked by qualification.

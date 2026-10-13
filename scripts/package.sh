@@ -41,7 +41,7 @@ if [[ "$MODE" == "--production" ]]; then
   [[ -z "$(git status --porcelain)" ]] || { echo 'Production packaging requires a clean Git checkout.' >&2; exit 1; }
 fi
 VERSION="$(cat VERSION)"
-[[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo 'VERSION must contain a numeric release version with an optional prerelease suffix.' >&2; exit 1; }
+loadside_validate_release_version "$VERSION" || { echo 'VERSION must contain a semantic release version with an optional prerelease suffix (for example 1.0.0 or 1.0.0-rc.1).' >&2; exit 1; }
 SUFFIX=''
 if [[ "$MODE" == "--local" ]]; then SUFFIX='-local'; fi
 ARTIFACT="$PWD/dist/LoadSide-$VERSION-macOS-arm64$SUFFIX.zip"
@@ -64,13 +64,21 @@ if [[ "$MODE" == "--local" ]]; then
     [[ -L "$LOCAL_CLI" && "$(readlink "$LOCAL_CLI")" == 'LoadSide.app/Contents/Helpers/loadside' ]] || { echo 'Refusing to replace an unmanaged dist/loadside file.' >&2; exit 1; }
   fi
 fi
+loadside_validate_git_history "$(git rev-parse --is-shallow-repository)"
 loadside_configure_build
 mkdir -p dist
 STAGING="$(mktemp -d "$PWD/dist/.package.XXXXXX")"
 INSTALLING_LOCAL=false
 INSTALLED_LOCAL=false
+ARCHIVE_CREATED=false
+CHECKSUM_CREATED=false
+PACKAGE_COMPLETE=false
 cleanup() {
   local result=$?
+  if [[ "$PACKAGE_COMPLETE" == false ]]; then
+    if [[ "$CHECKSUM_CREATED" == true && ! -L "$CHECKSUM" && "$CHECKSUM" -ef "$STAGING/release.sha256" ]]; then rm -f "$CHECKSUM"; fi
+    if [[ "$ARCHIVE_CREATED" == true && ! -L "$ARTIFACT" && "$ARTIFACT" -ef "$STAGING/release.zip" ]]; then rm -f "$ARTIFACT"; fi
+  fi
   if [[ "$INSTALLED_LOCAL" == false ]]; then
     if [[ "$INSTALLING_LOCAL" == true ]]; then rm -rf "$LOCAL_APP"; fi
     if [[ -d "$STAGING/previous.app" ]]; then mv "$STAGING/previous.app" "$LOCAL_APP"; fi
@@ -88,6 +96,7 @@ BIN_DIR="$(swift build -c release "${LOADSIDE_SWIFT_BUILD_FLAGS[@]}" --show-bin-
 for executable in LoadSideApp loadside; do
   [[ -x "$BIN_DIR/$executable" ]] || { echo "Missing release executable: $executable" >&2; exit 1; }
 done
+[[ "$("$BIN_DIR/loadside" version)" == "LoadSide $VERSION" ]] || { echo 'Release CLI version does not match VERSION. Update source versions and rebuild.' >&2; exit 1; }
 APP="$STAGING/LoadSide.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Helpers" "$APP/Contents/Resources"
 cp "$BIN_DIR/LoadSideApp" "$APP/Contents/MacOS/LoadSide"
@@ -100,7 +109,15 @@ cp Assets/Info.plist "$APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $(git rev-list --count HEAD)" "$APP/Contents/Info.plist"
 swift scripts/make-icon.swift "$STAGING/LoadSide.iconset"
 /usr/bin/iconutil -c icns "$STAGING/LoadSide.iconset" -o "$APP/Contents/Resources/LoadSide.icns"
-cp README.md LICENSE "$APP/Contents/Resources/"
+cp Assets/README-installed.md "$APP/Contents/Resources/README.md"
+cp LICENSE "$APP/Contents/Resources/"
+SOURCE_STATE=clean
+if [[ -n "$(git status --porcelain)" ]]; then SOURCE_STATE=modified; fi
+{
+  printf 'LoadSide: %s\nBuild type: %s\nSource commit: %s\nSource tree: %s\n' "$VERSION" "${MODE#--}" "$(git rev-parse HEAD)" "$SOURCE_STATE"
+  printf 'Architecture: arm64\nMinimum macOS: %s\nBuild SDK: %s\n' "$LOADSIDE_MINIMUM_MACOS" "$LOADSIDE_MACOS_SDK_VERSION"
+  swift --version
+} > "$APP/Contents/Resources/BuildInfo.txt"
 mkdir -p "$APP/Contents/Resources/Documentation"
 cp docs/COMPATIBILITY.md docs/APPROVAL_ENTITLEMENTS.md "$APP/Contents/Resources/Documentation/"
 mkdir -p "$APP/Contents/Resources/ThirdParty"
@@ -124,13 +141,33 @@ else
 fi
 if [[ "$CREATE_ARCHIVE" == true ]]; then
   /usr/bin/ditto -c -k --keepParent "$APP" "$STAGING/release.zip"
+  # Inspect the bytes users will extract, not just the pre-archive bundle. This
+  # archive was produced above from our staged bundle; it is not an input archive.
+  /usr/bin/unzip -tq "$STAGING/release.zip"
+  /usr/bin/ditto -x -k "$STAGING/release.zip" "$STAGING/roundtrip"
+  EXTRACTED_APP="$STAGING/roundtrip/LoadSide.app"
+  loadside_verify_bundle_binaries "$EXTRACTED_APP"
+  /usr/bin/codesign --verify --deep --strict --verbose=2 "$EXTRACTED_APP"
+  [[ "$("$EXTRACTED_APP/Contents/Helpers/loadside" version)" == "LoadSide $VERSION" ]] || { echo 'Archived CLI version does not match VERSION.' >&2; exit 1; }
+  if [[ "$MODE" == '--production' ]]; then
+    /usr/bin/xcrun stapler validate "$EXTRACTED_APP"
+    /usr/sbin/spctl --assess --type execute --verbose=2 "$EXTRACTED_APP"
+  fi
+  # Compute the checksum before publishing either file. Hard links provide an
+  # atomic, non-overwriting destination creation on this same-volume staging dir.
+  DIGEST="$(/usr/bin/shasum -a 256 "$STAGING/release.zip")"
+  printf '%s  %s\n' "${DIGEST%% *}" "$(basename "$ARTIFACT")" > "$STAGING/release.sha256"
   # Check again after potentially lengthy signing/notarization work.
   for destination in "$ARTIFACT" "$CHECKSUM"; do
     [[ ! -e "$destination" && ! -L "$destination" ]] || { echo "Refusing to overwrite $destination" >&2; exit 1; }
   done
-  mv -n "$STAGING/release.zip" "$ARTIFACT"
-  [[ ! -e "$STAGING/release.zip" ]] || { echo 'Artifact destination appeared during packaging; refusing to overwrite it.' >&2; exit 1; }
-  (cd dist && set -o noclobber && /usr/bin/shasum -a 256 "$(basename "$ARTIFACT")" > "$(basename "$ARTIFACT").sha256")
+  # Mark cleanup ownership before publishing so a signal immediately after
+  # link creation cannot leave an orphan. Cleanup verifies the staged inode.
+  ARCHIVE_CREATED=true
+  loadside_publish_file "$STAGING/release.zip" "$ARTIFACT"
+  CHECKSUM_CREATED=true
+  loadside_publish_file "$STAGING/release.sha256" "$CHECKSUM"
+  (cd dist && /usr/bin/shasum -a 256 -c "$(basename "$CHECKSUM")")
   echo "Created $ARTIFACT"
 fi
 if [[ "$MODE" == "--local" ]]; then
@@ -144,3 +181,4 @@ if [[ "$MODE" == "--local" ]]; then
   echo "Local CLI: $LOCAL_CLI"
   echo 'LOCAL BUILD: ad-hoc signed; not notarized or approved for public release.'
 fi
+PACKAGE_COMPLETE=true

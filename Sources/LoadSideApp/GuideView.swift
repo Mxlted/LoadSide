@@ -8,7 +8,7 @@ struct GuideView: View {
                 HStack(alignment: .firstTextBaseline) {
                     PageHeading(title: "LoadSide Help", detail: "Start with an app archive. Find guidance for each step below.")
                     Spacer()
-                    Text("Version \(Bundle.main.infoDictionary?["LoadSideVersion"] as? String ?? "0.1.0-rc.2")")
+                    Text("Version \(Bundle.main.infoDictionary?["LoadSideVersion"] as? String ?? "0.1.0-rc.3")")
                         .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
                 }
                 HelpDisclosureControls(disclosures: disclosures)

@@ -14,6 +14,7 @@ fi
 source scripts/build-support.sh
 loadside_configure_build
 for script in scripts/*.sh; do bash -n "$script"; done
+python3 scripts/check-docs.py
 scripts/format.sh --check
 scripts/check-packaging.sh
 if [[ $# -eq 0 ]]; then

@@ -15,6 +15,42 @@ loadside_require_supported_host() {
   loadside_validate_host "$(/usr/bin/uname -s)" "$(/usr/bin/uname -m)"
 }
 
+loadside_validate_git_history() {
+  # CFBundleVersion comes from the commit count, so a shallow checkout would
+  # produce a different (usually 1) build number for the same source commit.
+  [[ "$1" == false ]] || {
+    echo 'Packaging requires complete Git history. Fetch with git fetch --unshallow, or use checkout fetch-depth: 0 in CI.' >&2
+    return 1
+  }
+}
+
+loadside_validate_release_version() {
+  local component
+  [[ "$1" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]] || return 1
+  if [[ "$1" == *-* ]]; then
+    local suffix="${1#*-}"
+    local components
+    IFS=. read -r -a components <<< "$suffix"
+    for component in "${components[@]}"; do
+      [[ ! "$component" =~ ^0[0-9]+$ ]] || return 1
+    done
+  fi
+}
+
+loadside_publish_file() {
+  # os.link creates exactly this destination or fails; unlike ln(1), it cannot
+  # follow a destination directory that appears between checking and publishing.
+  python3 - "$1" "$2" <<'PY'
+import os
+import sys
+
+try:
+    os.link(sys.argv[1], sys.argv[2])
+except OSError as error:
+    sys.exit(f"Cannot publish artifact without overwriting: {error.strerror}")
+PY
+}
+
 loadside_configure_build() {
   loadside_require_supported_host || return
   LOADSIDE_MACOS_SDK_PATH="$(/usr/bin/xcrun --sdk macosx --show-sdk-path)" || return

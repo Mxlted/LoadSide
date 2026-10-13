@@ -1,67 +1,73 @@
-name: Qualified release build
+name: Verify release candidate
 on:
   workflow_dispatch:
     inputs:
       device_qualification:
-        description: 'URL of the completed device qualification issue for this exact commit'
+        description: 'URL of the device qualification issue for this exact commit'
         required: true
         type: string
       qualification_commit:
-        description: 'Full commit SHA covered by the qualification issue; must equal the selected tag commit'
+        description: 'Full commit SHA covered by the issue; must equal the selected ref commit'
         required: true
         type: string
 permissions:
   contents: read
+concurrency:
+  group: release-candidate-${{ github.ref }}
+  cancel-in-progress: false
 jobs:
-  release:
-    # Configure this protected environment on a trusted, dedicated Mac with
-    # Developer ID + notarytool credentials in its keychain. No secrets on PRs.
-    # Required environment reviewers must inspect the qualification issue and confirm
-    # completion for the exact commit. URL/commit validation below does not prove completion.
-    environment: production
-    runs-on: [self-hosted, macOS, ARM64, loadside-release]
+  verify:
+    # Public source runs on an ephemeral hosted runner. Production credentials
+    # remain on the trusted release Mac and are never available to this workflow.
+    runs-on: macos-15
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
-      - name: Require the version tag
-        id: version
-        shell: bash
-        run: |
-          [[ "$GITHUB_REF" == "refs/tags/v$(cat VERSION)" ]] || { echo 'Run from the matching version tag.'; exit 1; }
-          echo "version=$(cat VERSION)" >> "$GITHUB_OUTPUT"
+          fetch-depth: 0
       - name: Validate qualification reference and exact commit
+        id: version
         shell: bash
         env:
           QUALIFICATION_REFERENCE: ${{ inputs.device_qualification }}
           QUALIFICATION_COMMIT: ${{ inputs.qualification_commit }}
         run: |
-          [[ "$QUALIFICATION_COMMIT" == "$GITHUB_SHA" ]] || { echo 'Qualification commit must exactly match the selected tag commit.'; exit 1; }
+          [[ "$QUALIFICATION_COMMIT" =~ ^[0-9a-f]{40}$ && "$QUALIFICATION_COMMIT" == "$(git rev-parse HEAD)" ]] || { echo 'Qualification commit must exactly match the checked-out commit.'; exit 1; }
           ISSUE_PREFIX="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/issues/"
           [[ "$QUALIFICATION_REFERENCE" == "$ISSUE_PREFIX"* ]] || { echo 'Qualification URL must point to an issue in this repository.'; exit 1; }
           ISSUE_NUMBER="${QUALIFICATION_REFERENCE#"$ISSUE_PREFIX"}"
           [[ "$ISSUE_NUMBER" =~ ^[1-9][0-9]*$ ]] || { echo 'Qualification URL must end with a valid issue number.'; exit 1; }
-          echo 'Reference and commit validated. Qualification content and completion require protected environment reviewer approval.'
-      - name: Verify
+          source scripts/build-support.sh
+          VERSION="$(cat VERSION)"
+          loadside_validate_release_version "$VERSION"
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            [[ "$GITHUB_REF" == "refs/tags/v$VERSION" ]] || { echo 'Selected tag does not match VERSION.'; exit 1; }
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo 'Reference and commit validated. A maintainer must separately review the issue evidence before production signing.'
+      - name: Test, build and verify candidate
         run: scripts/check.sh
-      - name: Sign, notarize and package
-        env:
-          LOADSIDE_SIGNING_IDENTITY: ${{ vars.LOADSIDE_SIGNING_IDENTITY }}
-          LOADSIDE_NOTARY_PROFILE: ${{ vars.LOADSIDE_NOTARY_PROFILE }}
-        run: scripts/package.sh --production
-      - name: Record qualification reference
+      - name: Package local evaluation archive
+        run: scripts/package.sh --local --archive
+      - name: Record evaluation scope
         env:
           QUALIFICATION_REFERENCE: ${{ inputs.device_qualification }}
           QUALIFICATION_COMMIT: ${{ inputs.qualification_commit }}
         run: |
-          printf 'Commit: %s\nIssue: %s\n' "$QUALIFICATION_COMMIT" "$QUALIFICATION_REFERENCE" > dist/qualification-reference.txt
+          {
+            printf 'Commit: %s\nQualification issue: %s\n' "$QUALIFICATION_COMMIT" "$QUALIFICATION_REFERENCE"
+            printf 'Artifact: local evaluation only; ad-hoc signed, not notarized.\n'
+            printf 'Issue content and device qualification require maintainer review.\n'
+          } > dist/candidate-verification.txt
+          cat dist/candidate-verification.txt >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: LoadSide-qualified-release-arm64
+          name: LoadSide-${{ steps.version.outputs.version }}-evaluation-arm64
           path: |
-            dist/LoadSide-${{ steps.version.outputs.version }}-macOS-arm64.zip
-            dist/LoadSide-${{ steps.version.outputs.version }}-macOS-arm64.zip.sha256
-            dist/qualification-reference.txt
+            dist/LoadSide-${{ steps.version.outputs.version }}-macOS-arm64-local.zip
+            dist/LoadSide-${{ steps.version.outputs.version }}-macOS-arm64-local.zip.sha256
+            dist/candidate-verification.txt
           if-no-files-found: error
-          retention-days: 90
+          compression-level: 0
+          retention-days: 30

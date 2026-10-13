@@ -52,6 +52,27 @@ ln -s "$QA_DIRECTORY/outside-dist" "$QA_DIRECTORY/dist"
 expect_rejection 'Refusing a symlinked dist directory' "$PACKAGE_SCRIPT" --local --skip-build
 [[ ! -e "$QA_DIRECTORY/outside-dist" ]] || { echo 'FAIL: Packaging followed a destination symlink.' >&2; exit 1; }
 loadside_validate_host Darwin arm64
+loadside_validate_git_history false
+expect_rejection 'Packaging requires complete Git history' loadside_validate_git_history true
+expect_rejection 'Packaging requires complete Git history' loadside_validate_git_history ''
+for version in 0.1.0 1.2.3-rc.1 1.2.3-beta-test; do
+  loadside_validate_release_version "$version" || { echo "FAIL: Valid version rejected: $version" >&2; exit 1; }
+done
+for version in 01.2.3 1.02.3 1.2.03 1.2.3- 1.2.3-rc..1 1.2.3-rc.01 1.2.3-rc. 1.2.3+metadata; do
+  if loadside_validate_release_version "$version"; then
+    echo "FAIL: Invalid or unsupported version accepted: $version" >&2
+    exit 1
+  fi
+done
+printf 'new artifact\n' > "$QA_DIRECTORY/new-artifact"
+loadside_publish_file "$QA_DIRECTORY/new-artifact" "$QA_DIRECTORY/published-artifact"
+[[ "$QA_DIRECTORY/new-artifact" -ef "$QA_DIRECTORY/published-artifact" ]] || { echo 'FAIL: Published artifact differs from staged bytes.' >&2; exit 1; }
+expect_rejection 'Cannot publish artifact without overwriting' loadside_publish_file "$QA_DIRECTORY/new-artifact" "$QA_DIRECTORY/published-artifact"
+mkdir "$QA_DIRECTORY/existing-directory"
+ln -s "$QA_DIRECTORY/existing-directory" "$QA_DIRECTORY/directory-symlink"
+expect_rejection 'Cannot publish artifact without overwriting' loadside_publish_file "$QA_DIRECTORY/new-artifact" "$QA_DIRECTORY/existing-directory"
+expect_rejection 'Cannot publish artifact without overwriting' loadside_publish_file "$QA_DIRECTORY/new-artifact" "$QA_DIRECTORY/directory-symlink"
+[[ -z "$(ls -A "$QA_DIRECTORY/existing-directory")" ]] || { echo 'FAIL: Artifact publication followed a destination directory.' >&2; exit 1; }
 expect_rejection 'requires Apple Silicon' loadside_validate_host Darwin x86_64
 expect_rejection 'requires Apple Silicon' loadside_validate_host Linux arm64
 printf 'not a Mach-O binary\n' > "$QA_DIRECTORY/invalid-binary"
