@@ -5,6 +5,7 @@ struct WorkspaceView: View {
     @ObservedObject var model: WorkspaceModel
     @Environment(\.colorSchemeContrast) private var contrast
     @State private var isDropTarget = false
+    @State private var isInjectionDropTarget = false
     @State private var showSaveProfile = false
     @State private var showExtensionList = false
     @State private var showCompatibilityDetails = false
@@ -127,8 +128,8 @@ struct WorkspaceView: View {
             .background(isDropTarget ? Palette.accent.opacity(0.1) : Palette.surface, in: RoundedRectangle(cornerRadius: 12))
             .overlay(
                 RoundedRectangle(cornerRadius: 12).strokeBorder(
-                    isDropTarget ? Palette.accent : (contrast == .increased ? Color.primary.opacity(0.5) : Palette.separator),
-                    style: StrokeStyle(lineWidth: isDropTarget ? 2 : 1, dash: model.ipa == nil ? [6, 4] : []))
+                    isDropTarget ? Palette.accent : Color.primary.opacity(contrast == .increased ? 0.65 : 0.35),
+                    style: StrokeStyle(lineWidth: 2, dash: model.ipa == nil ? [6, 4] : []))
             )
             .contentShape(RoundedRectangle(cornerRadius: 12))
         }
@@ -311,24 +312,52 @@ struct WorkspaceView: View {
                 Spacer()
                 Button("Add…", action: model.chooseInjections).controlSize(.regular)
             }
-            Panel(padding: 14) {
+            Group {
                 if model.injections.isEmpty {
-                    HStack(spacing: 10) {
-                        Image(systemName: "puzzlepiece.extension").foregroundStyle(.secondary)
-                        Text("Drop libraries or packages here. DEB install scripts are never executed.").font(.system(size: 12))
-                            .foregroundStyle(.secondary)
-                        Spacer(minLength: 0)
-                    }.frame(minHeight: 22)
+                    Button(action: model.chooseInjections) {
+                        HStack(spacing: 12) {
+                            Image(systemName: "puzzlepiece.extension").font(.system(size: 22)).foregroundStyle(.secondary)
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("Drop libraries or packages here")
+                                    .font(.system(size: 13, weight: .medium))
+                                Text("Or click to browse. DEB install scripts are never executed.")
+                                    .font(.system(size: 12)).foregroundStyle(.secondary)
+                            }
+                            Spacer(minLength: 0)
+                        }
+                        .padding(18)
+                        .frame(maxWidth: .infinity, minHeight: 104, alignment: .leading)
+                        .contentShape(RoundedRectangle(cornerRadius: 12))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Add injected libraries")
+                    .accessibilityHint("Choose DEB packages, dynamic libraries, or frameworks.")
+                    .accessibilityIdentifier("workspace.injections")
                 } else {
-                    VStack(spacing: 13) {
-                        ForEach(model.injections, id: \.self) { url in
-                            FileRow(url: url, symbol: url.pathExtension == "deb" ? "shippingbox" : "puzzlepiece.extension") {
-                                model.injections.removeAll { $0 == url }
+                    Panel(padding: 18) {
+                        VStack(spacing: 13) {
+                            ForEach(model.injections, id: \.self) { url in
+                                FileRow(url: url, symbol: url.pathExtension == "deb" ? "shippingbox" : "puzzlepiece.extension") {
+                                    model.injections.removeAll { $0 == url }
+                                }
                             }
                         }
                     }
                 }
-            }.dropDestination(for: URL.self) { urls, _ in model.accept(urls, kind: .injection) }
+            }
+            .background(isInjectionDropTarget ? Palette.accent.opacity(0.1) : Palette.surface, in: RoundedRectangle(cornerRadius: 12))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12).strokeBorder(
+                    isInjectionDropTarget ? Palette.accent : Color.primary.opacity(contrast == .increased ? 0.65 : 0.35),
+                    style: StrokeStyle(lineWidth: 2, dash: model.injections.isEmpty ? [6, 4] : [])
+                )
+                .allowsHitTesting(false)
+            )
+            .dropDestination(for: URL.self) { urls, _ in
+                model.accept(urls, kind: .injection)
+            } isTargeted: {
+                isInjectionDropTarget = $0
+            }
         }.disabled(model.isRunning)
     }
 
