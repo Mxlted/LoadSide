@@ -93,7 +93,7 @@ swift run loadside sign \
   --output /path/App-signed.ipa
 ```
 
-The CLI prompts for the password without echoing it. For automation, use `--password-stdin` or `--password-file` with a file readable only by its owner. Never put passwords in command-line arguments. `--json` writes the result to stdout and progress JSONL to stderr. Ctrl-C cancels and cleans up. Run `loadside --help` for all options.
+The CLI prompts for the password without echoing it. For automation, use `--password-stdin` or `--password-file` with a regular UTF-8 file readable only by its owner (at most 16 KiB). Password files cannot be symbolic links or named pipes; use stdin for streamed input. Never put passwords in command-line arguments. `--json` writes the result to stdout and progress JSONL to stderr. Ctrl-C cancels and cleans up. Run `loadside --help` for all options.
 
 The CLI also defaults to preserving the original bundle identifier and experimental main-profile reuse for extensions. Use `--bundle-id-policy automatic` to allow profile-based identifier changes, or `--require-matching-extension-profiles` to disable experimental reuse. `--reuse-main-profile-for-extensions` remains available for explicit scripts; it cannot be combined with `--require-matching-extension-profiles` or `--remove-extensions`.
 

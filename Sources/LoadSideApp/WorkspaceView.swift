@@ -187,7 +187,7 @@ struct WorkspaceView: View {
             }
             .dropDestination(for: URL.self) { urls, _ in model.accept(urls.filter { ["p12", "pfx", "mobileprovision"].contains($0.pathExtension.lowercased()) }) }
             if let notice = model.savedProfileNotice { InlineNotice(message: notice, color: Palette.accent, symbol: "info.circle") }
-        }.disabled(model.isRunning)
+        }.disabled(model.isRunning || model.isManagingSigningProfiles)
     }
 
     @ViewBuilder private func profileRow(_ url: URL) -> some View {

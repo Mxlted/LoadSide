@@ -1,6 +1,20 @@
 import AppKit
 import SwiftUI
 
+enum AppSection: String, CaseIterable, Identifiable {
+    case workspace = "Workspace", library = "Local Library", signingProfiles = "Signing Profiles", activity = "Activity", guide = "Help"
+    var id: Self { self }
+    var symbol: String {
+        switch self {
+        case .workspace: "signature"
+        case .library: "network"
+        case .signingProfiles: "person.crop.rectangle.stack"
+        case .activity: "clock.arrow.circlepath"
+        case .guide: "questionmark.circle"
+        }
+    }
+}
+
 @main
 struct LoadSideApp: App {
     @StateObject private var model = WorkspaceModel()

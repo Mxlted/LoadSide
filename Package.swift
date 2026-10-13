@@ -14,6 +14,8 @@ let package = Package(
         .target(name: "LoadSideCore", dependencies: ["CArchive"], linkerSettings: [.linkedFramework("Security")]),
         .executableTarget(name: "LoadSideApp", dependencies: ["LoadSideCore"]),
         .executableTarget(name: "LoadSideCLI", dependencies: ["LoadSideCore"]),
-        .testTarget(name: "LoadSideCoreTests", dependencies: ["LoadSideCore"])
+        .testTarget(name: "LoadSideCoreTests", dependencies: ["LoadSideCore"]),
+        .testTarget(name: "LoadSideAppTests", dependencies: ["LoadSideApp"]),
+        .testTarget(name: "LoadSideCLITests", dependencies: ["LoadSideCLI"])
     ]
 )

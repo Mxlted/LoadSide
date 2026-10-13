@@ -4,53 +4,6 @@ import LoadSideCore
 import SwiftUI
 import UniformTypeIdentifiers
 
-enum AppSection: String, CaseIterable, Identifiable {
-    case workspace = "Workspace", library = "Local Library", signingProfiles = "Signing Profiles", activity = "Activity", guide = "Help"
-    var id: Self { self }
-    var symbol: String {
-        switch self {
-        case .workspace: "signature"
-        case .library: "network"
-        case .signingProfiles: "person.crop.rectangle.stack"
-        case .activity: "clock.arrow.circlepath"
-        case .guide: "questionmark.circle"
-        }
-    }
-}
-
-enum JobMode: String, Codable, CaseIterable {
-    case sign, injectOnly
-    var title: String { self == .sign ? "Sign & export" : "Inject only" }
-}
-
-enum JobStatus: String, Codable {
-    case running, completed, failed, cancelled, interrupted
-    var title: String { rawValue.capitalized }
-}
-
-struct JobRecord: Identifiable, Codable {
-    var id: UUID
-    var startedAt: Date
-    var finishedAt: Date?
-    var sourceName: String
-    var status: JobStatus
-    var output: URL
-    var result: SigningResult?
-    var events: [SigningEvent]
-    var failure: String?
-    var recovery: String?
-    var errorCode: String?
-    var entitlementPolicy: EntitlementPolicy
-    var profileCount: Int
-    var injectionNames: [String]
-    var removeExtensions: Bool?
-    var bundleIdentifierPolicy: BundleIdentifierPolicy?
-    var savedSigningProfileID: UUID?
-    var extensionProfilePolicy: ExtensionProfilePolicy?
-    var jobMode: JobMode?
-    var injectionResult: InjectionExportResult?
-}
-
 enum ProfileInspection: Sendable {
     case inspecting
     case valid(ProvisioningProfile)
@@ -102,14 +55,14 @@ final class WorkspaceModel: ObservableObject {
     private var savedSelectionToken = UUID()
     private var applyingSavedSelection = false
     private let savedProfileStore = SavedSigningProfileStore()
-    private let historyURL: URL
+    private let historyStore = JobHistoryStore()
 
     init() {
-        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        historyURL = support.appendingPathComponent("LoadSide", isDirectory: true).appendingPathComponent("history.json")
         loadHistory()
         Task { [weak self] in await self?.loadSavedSigningProfiles(restoreSelection: true) }
     }
+
+    // MARK: - Input readiness
 
     var profilesReady: Bool {
         !profiles.isEmpty && profiles.allSatisfy { url in
@@ -135,14 +88,7 @@ final class WorkspaceModel: ObservableObject {
         unmatchedExtensionIdentifiers.filter { !compatibilityExtensionIdentifiers.contains($0) }
     }
     var canSaveSigningProfile: Bool { certificate != nil && profilesReady && !isRunning && !isManagingSigningProfiles }
-    var profileAppIDPatterns: [String] {
-        Array(Set(profiles.compactMap { url -> String? in
-            if case .valid(let profile) = profileInspections[url] { return profile.bundleIdentifierPattern }
-            return nil
-        })).sorted()
-    }
     var selectedSigningProfile: SavedSigningProfile? { savedSigningProfiles.first { $0.id == selectedSigningProfileID } }
-    var signingPlanNote: String { "The signing engine also checks certificate membership and entitlements before signing." }
     var currentJob: JobRecord? { history.first { $0.id == activeJobID } }
     var selectedJob: JobRecord? { history.first { $0.id == selectedJobID } ?? history.first }
     var missingInputs: String {
@@ -176,6 +122,8 @@ final class WorkspaceModel: ObservableObject {
         guard isSelected, !isRunning else { return }
         extensionProfilePolicy = policy
     }
+
+    // MARK: - Input inspection and signing plan
 
     func inspectProfile(_ url: URL) {
         let token = UUID()
@@ -257,10 +205,7 @@ final class WorkspaceModel: ObservableObject {
         }
     }
 
-    func removeUnmatchedExtensions() {
-        guard !isRunning, !isManagingSigningProfiles, !unmatchedExtensionIdentifiers.isEmpty else { return }
-        removeExtensions = true
-    }
+    // MARK: - Saved signing profiles
 
     func loadSavedSigningProfiles(restoreSelection: Bool = false) async {
         do {
@@ -346,6 +291,8 @@ final class WorkspaceModel: ObservableObject {
         }
     }
 
+    // MARK: - File selection
+
     enum InputKind {
         case ipa, certificate, profile, injection
         var extensions: [String] {
@@ -389,7 +336,7 @@ final class WorkspaceModel: ObservableObject {
         for url in urls {
             let ext = url.pathExtension.lowercased()
             guard url.isFileURL, FileManager.default.fileExists(atPath: url.path),
-                  kind == nil || kind!.extensions.contains(ext) else {
+                  kind.map({ $0.extensions.contains(ext) }) ?? true else {
                 rejected.append(url.lastPathComponent)
                 continue
             }
@@ -412,6 +359,8 @@ final class WorkspaceModel: ObservableObject {
         if accepted > 0 { section = .workspace }
         return accepted > 0
     }
+
+    // MARK: - Export lifecycle
 
     func beginSigning() {
         guard canSign else { return }
@@ -521,9 +470,7 @@ final class WorkspaceModel: ObservableObject {
 
     private func receive(_ event: SigningEvent, for id: UUID, secret: String) {
         guard let index = history.firstIndex(where: { $0.id == id }) else { return }
-        let safeMessage = redact(event.message, secret: secret)
-        let safeEvent = SigningEvent(stage: event.stage, fraction: event.fraction, message: safeMessage, level: event.level)
-        history[index].events.append(safeEvent)
+        history[index].events.append(event.redacting(secret: secret))
         if history[index].events.count > 1_000 { history[index].events.removeFirst() }
         persistHistory()
     }
@@ -585,6 +532,8 @@ final class WorkspaceModel: ObservableObject {
 
     func reveal(_ url: URL) { NSWorkspace.shared.activateFileViewerSelecting([url]) }
 
+    // MARK: - Activity and diagnostics
+
     func exportDiagnostics(_ job: JobRecord) {
         let panel = NSSavePanel()
         panel.title = "Export diagnostics"
@@ -612,14 +561,9 @@ final class WorkspaceModel: ObservableObject {
     }
 
     private func loadHistory() {
-        guard FileManager.default.fileExists(atPath: historyURL.path) else { return }
+        guard FileManager.default.fileExists(atPath: historyStore.url.path) else { return }
         do {
-            history = try JSONDecoder().decode([JobRecord].self, from: Data(contentsOf: historyURL))
-            for index in history.indices where history[index].status == .running {
-                history[index].status = .interrupted
-                history[index].failure = "LoadSide closed before this job finished."
-                history[index].recovery = "Start a new signing session. Any existing export should be treated as unverified."
-            }
+            history = try historyStore.load()
             persistHistory()
         } catch {
             storageNotice = "Previous activity could not be loaded. Your signing files are unaffected."
@@ -628,9 +572,7 @@ final class WorkspaceModel: ObservableObject {
 
     private func persistHistory() {
         do {
-            try FileManager.default.createDirectory(at: historyURL.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-            try JSONEncoder().encode(history).write(to: historyURL, options: .atomic)
-            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: historyURL.path)
+            try historyStore.save(history)
         } catch {
             storageNotice = "Activity could not be saved: \(error.localizedDescription)"
         }

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Extract desktop library state and history persistence from views/workspace coordination; remove unused workspace members and prevent credential edits during saved-profile operations. Add history compatibility tests.
+- Share CLI argument parsing, progress/JSON reporting, and cancellation handling. Bound password-file reads, reject links and special files, and preserve the full password before a final CRLF line ending. Add argument and credential-input tests.
+
 - Separate local HTTP protocol handling from listener/transfer lifecycle. Parse CRLF framing as bytes so final header values remain intact, reject malformed body declarations, and close failed transfers without appending a second HTTP response.
 
 - Separate bundle inventory and shared IPA export transactions from signing orchestration; move reusable synthetic test fixtures into a dedicated support directory.
