@@ -3,6 +3,7 @@ import SwiftUI
 
 struct WorkspaceView: View {
     @ObservedObject var model: WorkspaceModel
+    @Environment(\.colorSchemeContrast) private var contrast
     @State private var isDropTarget = false
     @State private var showSaveProfile = false
     @State private var showExtensionList = false
@@ -12,50 +13,46 @@ struct WorkspaceView: View {
 
     var body: some View {
         GeometryReader { geometry in
-            VStack(spacing: 0) {
-                VStack(alignment: .leading, spacing: 15) {
-                    workspaceHeading
-                    applicationInput
-                    if let error = model.ipaInspectionError {
-                        InlineNotice(message: error + " " + (model.ipaInspectionRecovery ?? ""), color: Palette.error)
-                    }
-                }
-                .padding(.horizontal, AppMetrics.pagePadding).padding(.top, 20).padding(.bottom, 18)
-
-                if geometry.size.width >= AppMetrics.workspaceColumnsWidth {
-                    HStack(alignment: .top, spacing: 20) {
-                        ScrollView {
-                            VStack(alignment: .leading, spacing: 18) {
-                                if model.jobMode == .sign { credentials } else { injections }
-                            }
-                            .padding(.bottom, 18)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 24) {
+                        workspaceHeading
+                        applicationInput
+                        if let error = model.ipaInspectionError {
+                            InlineNotice(message: error + " " + (model.ipaInspectionRecovery ?? ""), color: Palette.error)
                         }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                        ScrollView {
-                            VStack(alignment: .leading, spacing: 18) {
-                                if let job = model.currentJob { currentJob(job) }
-                                if model.jobMode == .sign { signingPlan } else { injectionPlan }
-                                if model.jobMode == .sign { injections }
-                                if let notice = model.storageNotice { InlineNotice(message: notice) }
+                        if let job = model.currentJob { currentJob(job) }
+                        if geometry.size.width >= AppMetrics.workspaceColumnsWidth {
+                            HStack(alignment: .top, spacing: 24) {
+                                VStack(alignment: .leading, spacing: 24) {
+                                    if model.jobMode == .sign { credentials }
+                                    injections
+                                }
+                                .frame(maxWidth: .infinity, alignment: .topLeading)
+                                Group {
+                                    if model.jobMode == .sign { signingPlan } else { injectionPlan }
+                                }
+                                .frame(maxWidth: .infinity, alignment: .topLeading)
                             }
-                            .padding(.bottom, 18)
-                        }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                    }
-                    .padding(.horizontal, AppMetrics.pagePadding)
-                } else {
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 18) {
+                        } else {
                             if model.jobMode == .sign { credentials }
-                            injections
                             if model.jobMode == .sign { signingPlan } else { injectionPlan }
-                            if let job = model.currentJob { currentJob(job) }
-                            if let notice = model.storageNotice { InlineNotice(message: notice) }
+                            injections
                         }
-                        .padding(.horizontal, AppMetrics.pagePadding).padding(.bottom, 18)
+                        if let notice = model.storageNotice { InlineNotice(message: notice) }
                     }
+                    .padding(AppMetrics.pagePadding)
+                    .frame(maxWidth: 1280)
+                    .frame(maxWidth: .infinity)
+                    .id("workspace.top")
                 }
-                exportBar.padding(.horizontal, AppMetrics.pagePadding).padding(.bottom, 15).padding(.top, 9)
+                .onChange(of: model.jobMode) { _, _ in proxy.scrollTo("workspace.top", anchor: .top) }
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    exportBar
+                        .frame(maxWidth: 1232)
+                        .padding(.horizontal, AppMetrics.pagePadding)
+                        .padding(.bottom, 16).padding(.top, 8)
+                }
             }
         }
         .sheet(isPresented: $showSaveProfile) { SaveSigningProfileSheet(model: model) }
@@ -64,7 +61,11 @@ struct WorkspaceView: View {
     private var workspaceHeading: some View {
         ViewThatFits(in: .horizontal) {
             HStack(alignment: .center, spacing: 22) {
-                PageHeading(title: "Prepare an app", detail: "Sign locally, or inject now and sign later.")
+                PageHeading(
+                    title: "Prepare an app",
+                    detail: model.jobMode == .sign
+                        ? "Choose an app and signing identity to create your export."
+                        : "Add libraries to an app, then sign the exported IPA later.")
                 Spacer(minLength: 13)
                 workflowPicker.frame(width: 290)
             }
@@ -88,7 +89,9 @@ struct WorkspaceView: View {
     private var applicationInput: some View {
         Button(action: model.chooseIPA) {
             HStack(spacing: 17) {
-                SymbolTile(symbol: model.ipa == nil ? "square.and.arrow.down" : "app.fill", size: 48)
+                SymbolTile(
+                    symbol: model.ipa == nil ? "square.and.arrow.down" : "app.fill", color: model.ipa == nil ? .accentColor : .secondary,
+                    size: 48)
                 VStack(alignment: .leading, spacing: 6) {
                     Text(model.ipaInspection?.displayName ?? model.ipa?.deletingPathExtension().lastPathComponent ?? "Add an IPA")
                         .font(.system(size: 17, weight: .semibold)).lineLimit(1).truncationMode(.middle)
@@ -108,7 +111,7 @@ struct WorkspaceView: View {
                             }.font(.system(size: 11, design: .monospaced)).foregroundStyle(.secondary)
                         }
                     } else {
-                        Text("Drop it here or choose a file. Your original stays unchanged. IPA must be decrypted.").font(.system(size: 13))
+                        Text("Drop a decrypted IPA here. Your original stays unchanged.").font(.system(size: 13))
                             .foregroundStyle(.secondary)
                     }
                 }
@@ -117,22 +120,24 @@ struct WorkspaceView: View {
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(Palette.accent)
                     .padding(.horizontal, 15).padding(.vertical, 7)
-                    .background(Palette.accent.opacity(0.08), in: Capsule())
+                    .background(Palette.accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 7))
             }
             .padding(15)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(isDropTarget ? Palette.accent.opacity(0.1) : Palette.surface, in: RoundedRectangle(cornerRadius: 20))
+            .background(isDropTarget ? Palette.accent.opacity(0.1) : Palette.surface, in: RoundedRectangle(cornerRadius: 12))
             .overlay(
-                RoundedRectangle(cornerRadius: 20).strokeBorder(
-                    isDropTarget ? Palette.accent : Palette.separator,
+                RoundedRectangle(cornerRadius: 12).strokeBorder(
+                    isDropTarget ? Palette.accent : (contrast == .increased ? Color.primary.opacity(0.5) : Palette.separator),
                     style: StrokeStyle(lineWidth: isDropTarget ? 2 : 1, dash: model.ipa == nil ? [6, 4] : []))
             )
-            .contentShape(RoundedRectangle(cornerRadius: 20))
+            .contentShape(RoundedRectangle(cornerRadius: 12))
         }
         .buttonStyle(.plain)
         .disabled(model.isRunning || model.isManagingSigningProfiles)
         .help("Choose a decrypted IPA (⌘O)")
         .accessibilityLabel(model.ipa == nil ? "Add an IPA" : "Change IPA")
+        .accessibilityValue(model.ipa?.lastPathComponent ?? "No file selected")
+        .accessibilityIdentifier("workspace.ipa")
         .dropDestination(for: URL.self) { urls, _ in
             model.accept(urls, kind: .ipa)
         } isTargeted: {
@@ -177,7 +182,7 @@ struct WorkspaceView: View {
                                 model.password = ""
                             }
                         } else {
-                            Text("Import your Apple certificate and private key.").font(.system(size: 12)).foregroundStyle(.tertiary)
+                            Text("Import your Apple certificate and private key.").font(.system(size: 12)).foregroundStyle(.secondary)
                         }
                         SecureField("P12 password", text: $model.password).inputField().accessibilityLabel("Certificate password")
                         if model.selectedSigningProfile?.remembersPassword == true && model.password.isEmpty {
@@ -194,13 +199,13 @@ struct WorkspaceView: View {
                         }
                         if model.profiles.isEmpty {
                             Text("Add a .mobileprovision for the app and its extensions.")
-                                .font(.system(size: 12)).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
+                                .font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                         }
                         ForEach(model.profiles, id: \.self) { url in profileRow(url) }
                     }
                     Divider()
                     HStack {
-                        Image(systemName: "key.viewfinder").foregroundStyle(.tertiary)
+                        Image(systemName: "key.viewfinder").foregroundStyle(.secondary)
                         Text("Save this identity for next time").font(.system(size: 12)).foregroundStyle(.secondary)
                         Spacer(minLength: 0)
                         Button("Save…") { showSaveProfile = true }.controlSize(.regular)
@@ -309,7 +314,7 @@ struct WorkspaceView: View {
             Panel(padding: 14) {
                 if model.injections.isEmpty {
                     HStack(spacing: 10) {
-                        Image(systemName: "puzzlepiece.extension").foregroundStyle(.tertiary)
+                        Image(systemName: "puzzlepiece.extension").foregroundStyle(.secondary)
                         Text("Drop libraries or packages here. DEB install scripts are never executed.").font(.system(size: 12))
                             .foregroundStyle(.secondary)
                         Spacer(minLength: 0)
@@ -331,25 +336,33 @@ struct WorkspaceView: View {
         Panel(padding: 15) {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
-                    SectionHeading(title: job.status == .running ? "Export in progress" : "Last export")
+                    SectionHeading(
+                        title: job.status == .running
+                            ? (model.isCancelling ? "Stopping safely…" : "Export in progress")
+                            : (job.status == .completed ? "Export complete" : "Last export"))
                     Spacer()
                     StatusPill(status: job.status)
                     Button("Details") {
                         model.selectedJobID = job.id
                         model.section = .activity
-                    }.controlSize(.regular)
+                    }.controlSize(.regular).accessibilityIdentifier("workspace.exportDetails")
                 }
                 if job.status == .running {
                     ProgressView(value: job.events.map(\.fraction).max() ?? 0).progressViewStyle(.linear)
-                    Text(job.events.last?.message ?? "Preparing the signing workspace…").font(.system(size: 12)).foregroundStyle(.secondary)
+                        .accessibilityLabel("Export progress")
+                    Text(job.events.last?.message ?? "Preparing the export workspace…").font(.system(size: 12)).foregroundStyle(.secondary)
                         .textSelection(.enabled)
                 }
                 if let result = job.result {
                     HStack {
                         VStack(alignment: .leading, spacing: 4) {
-                            Text(result.output.lastPathComponent).font(.system(size: 13, weight: .medium)).textSelection(.enabled)
-                            Text("\(result.signedCodeCount) code objects verified · \(result.injectedLibraryCount) libraries injected")
-                                .font(.system(size: 12)).foregroundStyle(.secondary)
+                            Text(result.output.lastPathComponent).font(.system(size: 13, weight: .medium)).lineLimit(2).truncationMode(
+                                .middle
+                            ).textSelection(.enabled).help(result.output.path)
+                            Text(
+                                "\(result.signedCodeCount) code objects locally verified · \(result.injectedLibraryCount) libraries injected"
+                            )
+                            .font(.system(size: 12)).foregroundStyle(.secondary)
                         }
                         Spacer()
                         Button("Show in Finder") { model.reveal(job.output) }.disabled(
@@ -373,6 +386,10 @@ struct WorkspaceView: View {
                             !FileManager.default.fileExists(atPath: job.output.path))
                     }
                     Text("Sign this IPA before installation.").font(.system(size: 12)).foregroundStyle(.secondary)
+                }
+                if job.status == .completed, !FileManager.default.fileExists(atPath: job.output.path) {
+                    Text("The exported file has moved or is no longer available at its original location.")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
                 if let failure = job.failure {
                     InlineNotice(message: failure, color: job.status == .failed ? Palette.error : Palette.warning)
@@ -405,12 +422,16 @@ struct WorkspaceView: View {
                 Text(
                     model.isRunning
                         ? "Keep LoadSide open until cleanup finishes."
-                        : model.jobMode == .sign ? "Choose the export destination next." : "Unsigned output · Sign before installation"
+                        : model.jobMode == .sign
+                            ? (model.canSign ? "Choose the export destination next." : "Complete the inputs above to continue.")
+                            : "Unsigned output · Sign before installation"
                 ).font(.system(size: 11)).foregroundStyle(.secondary)
             }
             Spacer(minLength: 11)
             if model.isRunning {
-                Button(model.isCancelling ? "Cancelling…" : "Cancel", action: model.cancel).adaptiveGlassButton().disabled(
+                Button(model.isCancelling ? "Cancelling…" : "Cancel", action: model.cancel).buttonStyle(.bordered).accessibilityIdentifier(
+                    "workspace.cancel"
+                ).disabled(
                     model.isCancelling)
             } else {
                 Button(action: model.beginSigning) {
@@ -418,7 +439,7 @@ struct WorkspaceView: View {
                         model.jobMode == .sign ? "Sign & Export…" : "Inject & Export…",
                         systemImage: model.jobMode == .sign ? "signature" : "puzzlepiece.extension")
                 }
-                .adaptiveGlassButton(prominent: true).controlSize(.large).disabled(!model.canSign)
+                .buttonStyle(.borderedProminent).controlSize(.large).disabled(!model.canSign)
                 .accessibilityIdentifier("export")
                 .help(model.jobMode == .sign ? "Sign and export (⌘R)" : "Export an unsigned injected IPA (⌘R)")
             }

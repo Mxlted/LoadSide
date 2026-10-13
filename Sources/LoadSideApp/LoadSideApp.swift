@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 enum AppSection: String, CaseIterable, Identifiable {
-    case workspace = "Workspace", library = "Local Library", signingProfiles = "Signing Profiles", activity = "Activity", guide = "Help"
+    case workspace = "Workspace", signingProfiles = "Signing Profiles", library = "Local Library", activity = "Activity", guide = "Help"
     var id: Self { self }
     var symbol: String {
         switch self {
@@ -25,7 +25,7 @@ struct LoadSideApp: App {
             MainView(model: model)
                 .tint(Palette.accent)
                 .font(.system(size: 14))
-                .controlSize(.large)
+                .controlSize(.regular)
                 .frame(minWidth: AppMetrics.minimumWindowSize.width, minHeight: AppMetrics.minimumWindowSize.height)
                 .onOpenURL { model.accept([$0]) }
                 .onAppear { delegate.model = model }
@@ -47,8 +47,10 @@ struct LoadSideApp: App {
                 Button("Add Provisioning Profiles…", action: model.chooseProfiles).disabled(model.isRunning)
                 Button("Add Injection…", action: model.chooseInjections).disabled(model.isRunning)
                 Divider()
+                Button("Workspace") { model.section = .workspace }.keyboardShortcut("1")
                 Button("Signing Profiles") { model.section = .signingProfiles }.keyboardShortcut("2")
                 Button("Local Library") { model.section = .library }.keyboardShortcut("3")
+                Button("Activity") { model.section = .activity }.keyboardShortcut("4")
             }
             CommandGroup(replacing: .help) {
                 Button("LoadSide Help") { model.section = .guide }
@@ -85,7 +87,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 struct MainView: View {
     @ObservedObject var model: WorkspaceModel
-    @State private var sidebarVisible = true
+    @State private var columnVisibility = NavigationSplitViewVisibility.all
+    @State private var sidebarSelection: AppSection?
+
+    init(model: WorkspaceModel) {
+        self.model = model
+        _sidebarSelection = State(initialValue: model.section)
+    }
 
     private var title: String {
         model.section == .workspace
@@ -94,27 +102,36 @@ struct MainView: View {
     }
 
     var body: some View {
-        HStack(spacing: 0) {
-            if sidebarVisible {
-                sidebar.frame(width: AppMetrics.sidebarWidth)
-                Divider()
-            }
-            ZStack(alignment: .topLeading) {
-                switch model.section {
-                case .workspace: WorkspaceView(model: model)
-                case .signingProfiles: SigningProfilesView(model: model)
-                case .library: LocalLibraryView(model: model)
-                case .activity: ActivityView(model: model)
-                case .guide: GuideView()
+        NavigationSplitView(columnVisibility: $columnVisibility) {
+            sidebar
+                .navigationSplitViewColumnWidth(min: 200, ideal: AppMetrics.sidebarWidth, max: 260)
+        } detail: {
+            // Keep destination ideal sizes from moving the native split view
+            // outside its viewport when the selected screen changes.
+            GeometryReader { detailGeometry in
+                ZStack(alignment: .topLeading) {
+                    switch model.section {
+                    case .workspace: WorkspaceView(model: model)
+                    case .signingProfiles: SigningProfilesView(model: model)
+                    case .library: LocalLibraryView(model: model)
+                    case .activity: ActivityView(model: model)
+                    case .guide: GuideView()
+                    }
                 }
+                .frame(width: detailGeometry.size.width, height: detailGeometry.size.height, alignment: .topLeading)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Palette.background)
+            .navigationTitle(title)
+            .toolbar { workspaceToolbar }
         }
-        .background(Palette.background)
+        .navigationSplitViewStyle(.balanced)
+        // Native List selection can be delivered while AppKit updates its rows.
+        // Commit model navigation from SwiftUI's change phase, not that callback.
+        .onChange(of: sidebarSelection) { _, section in
+            if let section, model.section != section { model.section = section }
+        }
+        .onChange(of: model.section) { _, section in sidebarSelection = section }
         .disclosureGroupStyle(FullRowDisclosureStyle())
-        .navigationTitle(title)
-        .toolbar { workspaceToolbar }
         .alert("Unable to complete action", isPresented: Binding(get: { model.notice != nil }, set: { if !$0 { model.notice = nil } })) {
             Button("OK") { model.notice = nil }
         } message: {
@@ -123,14 +140,6 @@ struct MainView: View {
     }
 
     @ToolbarContentBuilder private var workspaceToolbar: some ToolbarContent {
-        ToolbarItem(placement: .navigation) {
-            Button {
-                sidebarVisible.toggle()
-            } label: {
-                Label("Toggle Sidebar", systemImage: "sidebar.left")
-            }
-            .help(sidebarVisible ? "Hide sidebar" : "Show sidebar")
-        }
         if model.isRunning {
             ToolbarItem(placement: .principal) {
                 HStack(spacing: 9) {
@@ -152,54 +161,42 @@ struct MainView: View {
     }
 
     private var sidebar: some View {
-        VStack(alignment: .leading, spacing: 22) {
-            HStack(spacing: 11) {
-                SymbolTile(symbol: "signature", size: 40)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("LoadSide").font(.system(size: 18, weight: .semibold))
-                    Text("Your app workspace").font(.system(size: 12)).foregroundStyle(.secondary)
-                }
-            }.padding(.horizontal, 7).padding(.top, 9)
-            VStack(spacing: 6) {
+        VStack(spacing: 0) {
+            List(selection: $sidebarSelection) {
                 ForEach(AppSection.allCases) { section in
-                    Button {
-                        model.section = section
-                    } label: {
-                        HStack(spacing: 11) {
-                            Image(systemName: section.symbol).frame(width: 22)
-                            Text(section.rawValue).font(.system(size: 13, weight: model.section == section ? .semibold : .regular))
-                                .lineLimit(1)
-                            Spacer(minLength: 0)
-                            if section == .activity, model.isRunning {
-                                ProgressView().controlSize(.mini).accessibilityLabel("Export in progress")
-                            }
-                        }
-                        .padding(.horizontal, 10).padding(.vertical, 11)
-                        .foregroundStyle(model.section == section ? Color.primary : Color.secondary)
-                        .background(
-                            model.section == section ? Palette.accent.opacity(0.16) : .clear,
-                            in: RoundedRectangle(cornerRadius: 11)
-                        )
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("navigation.\(section)")
-                    .accessibilityAddTraits(model.section == section ? .isSelected : [])
+                    navigationRow(section)
                 }
             }
-            .padding(7)
-            .floatingControlSurface(cornerRadius: 18)
-            Spacer(minLength: 13)
-            HStack(alignment: .top, spacing: 9) {
-                Image(systemName: "lock.shield").font(.system(size: 14)).accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Prepared on your Mac").font(.system(size: 12, weight: .medium))
-                    Text(Bundle.main.infoDictionary?["LoadSideVersion"] as? String ?? "0.1.0-rc.2")
-                        .font(.system(size: 11, design: .monospaced))
-                }
-            }.foregroundStyle(.secondary).padding(.horizontal, 9).padding(.bottom, 4)
+            .listStyle(.sidebar)
+            HStack(spacing: 7) {
+                Image(systemName: "lock.shield").accessibilityHidden(true)
+                Text("Prepared on your Mac")
+                Spacer(minLength: 0)
+            }
+            .font(.caption).foregroundStyle(.secondary)
+            .padding(16)
         }
-        .padding(13)
-        .frame(maxHeight: .infinity)
+        .navigationTitle("LoadSide")
+    }
+
+    private func navigationRow(_ section: AppSection) -> some View {
+        NavigationLink(value: section) {
+            HStack(spacing: 10) {
+                Image(systemName: section.symbol).frame(width: 20)
+                    .foregroundStyle(.secondary)
+                Text(section.rawValue)
+                    .font(.system(size: 13, weight: model.section == section ? .semibold : .regular))
+                Spacer(minLength: 0)
+                if section == .activity, model.isRunning {
+                    ProgressView().controlSize(.mini).accessibilityLabel("Export in progress")
+                }
+            }
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .tag(section)
+        .accessibilityIdentifier("navigation.\(section)")
+        .accessibilityAddTraits(model.section == section ? .isSelected : [])
     }
 }

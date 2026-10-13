@@ -3,11 +3,16 @@ import SwiftUI
 struct GuideView: View {
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                PageHeading(title: "LoadSide Help", detail: "Prepare, sign, and share apps from your Mac.")
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 385), spacing: 22, alignment: .top)], alignment: .leading, spacing: 24) {
+            VStack(alignment: .leading, spacing: 28) {
+                HStack(alignment: .firstTextBaseline) {
+                    PageHeading(title: "LoadSide Help", detail: "Start with an app archive. Find guidance for each step below.")
+                    Spacer()
+                    Text("Version \(Bundle.main.infoDictionary?["LoadSideVersion"] as? String ?? "0.1.0-rc.2")")
+                        .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                }
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 365), spacing: 24, alignment: .top)], alignment: .leading, spacing: 28) {
                     helpSection(
-                        "Signing an app", symbol: "signature",
+                        "Signing an app", symbol: "signature", detail: "From your first archive to a verified export.",
                         entries: [
                             (
                                 "Choose the IPA",
@@ -28,6 +33,7 @@ struct GuideView: View {
                         ])
                     helpSection(
                         "Saving signing profiles", symbol: "person.crop.rectangle.stack",
+                        detail: "Set up your identity once, then reuse it.",
                         entries: [
                             (
                                 "Save once, reuse later",
@@ -43,7 +49,8 @@ struct GuideView: View {
                             )
                         ])
                     helpSection(
-                        "Identifiers, extensions, and capabilities", symbol: "checkmark.seal",
+                        "Identifiers and capabilities", symbol: "checkmark.seal",
+                        detail: "Understand profiles, policies, and compatibility.",
                         entries: [
                             (
                                 "Bundle ID and signing identity",
@@ -67,7 +74,7 @@ struct GuideView: View {
                             )
                         ])
                     helpSection(
-                        "Injecting libraries", symbol: "puzzlepiece.extension",
+                        "Injecting libraries", symbol: "puzzlepiece.extension", detail: "Add supported code and choose how to export.",
                         entries: [
                             (
                                 "Inject without a certificate",
@@ -87,7 +94,7 @@ struct GuideView: View {
                             )
                         ])
                     helpSection(
-                        "Local app library", symbol: "network",
+                        "Local app library", symbol: "network", detail: "Keep signed exports together and share a link.",
                         entries: [
                             (
                                 "Find signed exports",
@@ -103,7 +110,7 @@ struct GuideView: View {
                             )
                         ])
                     helpSection(
-                        "Troubleshooting", symbol: "stethoscope",
+                        "Troubleshooting", symbol: "stethoscope", detail: "Recover from an error and inspect the evidence.",
                         entries: [
                             (
                                 "Cancel or retry",
@@ -119,24 +126,27 @@ struct GuideView: View {
                             )
                         ])
                 }
-            }.padding(AppMetrics.pagePadding).frame(maxWidth: .infinity, alignment: .leading)
+            }.padding(AppMetrics.pagePadding).frame(maxWidth: 1200, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
         }
     }
 
-    private func helpSection(_ title: String, symbol: String, entries: [(String, String)]) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Label(title, systemImage: symbol).font(.system(size: 15, weight: .semibold))
-                .labelStyle(.titleAndIcon)
-            Panel(padding: 15) {
+    private func helpSection(_ title: String, symbol: String, detail: String, entries: [(String, String)]) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 10) {
+                SymbolTile(symbol: symbol, size: 32)
+                SectionHeading(title: title, detail: detail)
+            }
+            Panel(padding: 16) {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(entries.indices, id: \.self) { index in
                         DisclosureGroup(entries[index].0) {
-                            Text(entries[index].1).font(.system(size: 14)).foregroundStyle(.secondary).lineSpacing(4)
+                            Text(entries[index].1).font(.system(size: 13)).foregroundStyle(.secondary).lineSpacing(3)
                                 .fixedSize(horizontal: false, vertical: true).frame(maxWidth: .infinity, alignment: .leading).padding(
                                     .top, 9
-                                ).padding(.bottom, 4)
-                        }.font(.system(size: 14, weight: .medium))
-                            .disclosureGroupStyle(FullRowDisclosureStyle(headerVerticalPadding: 16))
+                                ).padding(.bottom, 12).textSelection(.enabled)
+                        }.font(.system(size: 13, weight: .medium))
+                            .disclosureGroupStyle(FullRowDisclosureStyle(headerVerticalPadding: 12))
                         if index < entries.count - 1 { Divider() }
                     }
                 }

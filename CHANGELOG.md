@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Refine the desktop UI with native split-view navigation, a single scrolling Workspace, persistent export controls, calmer opaque form groups, and adaptive Library/profile layouts. Keep Liquid Glass on navigation and floating controls with opaque increased-contrast/Reduce Transparency fallbacks; respect Reduce Motion for disclosures.
+- Clarify export readiness, local verification, missing output files, terminal event logs, and empty-state next actions. Preserve both workflows, signing policies, CLI contracts, and stored data. Add isolated presentation regressions and optional fixture screenshots across window sizes and appearances.
+
 - Give workspace profile inspections explicit task ownership: cancel removed or superseded checks, discard late results, and schedule one fresh CMS check per file when selecting or reselecting saved profiles. Add cancellation and reselection regressions.
 
 - Require Apple Silicon Macs while retaining macOS 14. Build, verify, and package only native ARM64 app/CLI executables; remove Intel CI and helper pins, reject unsupported build hosts/targets, and name new archives `macOS-arm64`. Preserve universal/fat user-archive handling and all signing policies.

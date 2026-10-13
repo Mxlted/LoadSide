@@ -9,37 +9,34 @@ struct SigningProfilesView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
-            HStack(alignment: .center, spacing: 20) {
-                PageHeading(title: "Signing Profiles", detail: "Keep your certificate and provisioning profiles ready for the next app.")
-                Spacer()
-                Button {
-                    showSave = true
-                } label: {
-                    Label("Save Current Identity…", systemImage: "plus")
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .center, spacing: 20) {
+                    heading
+                    Spacer(minLength: 20)
+                    saveButton
                 }
-                .adaptiveGlassButton(prominent: true).disabled(!model.canSaveSigningProfile)
-                .help(
-                    model.canSaveSigningProfile
-                        ? "Save the signing identity currently loaded in the workspace"
-                        : "Import a certificate and provisioning profiles in the workspace first")
+                VStack(alignment: .leading, spacing: 16) {
+                    heading
+                    saveButton
+                }
             }
             if let notice = model.savedProfileNotice { InlineNotice(message: notice, color: Palette.accent, symbol: "info.circle") }
             if model.isManagingSigningProfiles { ProgressView("Updating profile library…").controlSize(.small).font(.system(size: 12)) }
             if model.savedSigningProfiles.isEmpty {
-                VStack(spacing: 0) {
-                    EmptyState(
-                        symbol: "person.crop.rectangle.stack", title: "No saved signing profiles",
-                        description:
-                            "Import a P12 and provisioning profiles in the workspace, then save the identity. You can choose whether to remember its password in Keychain."
-                    )
-                    Button("Open Workspace") {
+                EmptyState(
+                    symbol: "person.crop.rectangle.stack", title: "No saved signing profiles",
+                    description:
+                        "Import a certificate and provisioning profiles in the workspace, then save them for your next app. Remembering the password in Keychain is optional.",
+                    actionTitle: "Open Workspace",
+                    action: {
                         model.jobMode = .sign
                         model.section = .workspace
-                    }.adaptiveGlassButton(prominent: true).padding(.bottom, 44)
-                }.frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
+                )
+                .disabled(model.isRunning || model.isManagingSigningProfiles)
             } else {
                 ScrollView {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 506), spacing: 15, alignment: .top)], spacing: 15) {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 370), spacing: 16, alignment: .top)], spacing: 16) {
                         ForEach(model.savedSigningProfiles) { profile in profileRow(profile) }
                     }
                 }
@@ -64,19 +61,30 @@ struct SigningProfilesView: View {
             }
     }
 
+    private var heading: some View {
+        PageHeading(title: "Signing Profiles", detail: "Your saved certificates and provisioning profiles.")
+    }
+
+    private var saveButton: some View {
+        Button {
+            showSave = true
+        } label: {
+            Label("Save Current Identity…", systemImage: "plus")
+        }
+        .disabled(!model.canSaveSigningProfile)
+        .help(
+            model.canSaveSigningProfile
+                ? "Save the signing identity currently loaded in the workspace"
+                : "Import a certificate and provisioning profiles in the workspace first")
+    }
+
     private func profileRow(_ profile: SavedSigningProfile) -> some View {
         Panel {
-            VStack(alignment: .leading, spacing: 17) {
-                HStack(alignment: .center, spacing: 13) {
-                    SymbolTile(symbol: "person.crop.rectangle", size: 48)
+            VStack(alignment: .leading, spacing: 16) {
+                HStack(alignment: .top, spacing: 12) {
+                    SymbolTile(symbol: "person.crop.rectangle", size: 40)
                     VStack(alignment: .leading, spacing: 6) {
-                        HStack(spacing: 9) {
-                            Text(profile.name).font(.system(size: 17, weight: .semibold)).lineLimit(2)
-                            if model.selectedSigningProfileID == profile.id {
-                                Label("Selected", systemImage: "checkmark.circle.fill")
-                                    .font(.system(size: 12, weight: .medium)).foregroundStyle(Palette.accent)
-                            }
-                        }
+                        Text(profile.name).font(.system(size: 16, weight: .semibold)).lineLimit(2).help(profile.name)
                         VStack(alignment: .leading, spacing: 4) {
                             Text("\(profile.profileCount) provisioning profile\(profile.profileCount == 1 ? "" : "s")")
                             Label(
@@ -84,16 +92,7 @@ struct SigningProfilesView: View {
                                 systemImage: profile.remembersPassword ? "lock.fill" : "lock.open")
                         }.font(.system(size: 13)).foregroundStyle(.secondary)
                     }
-                    Spacer(minLength: 11)
-                    Button(model.selectedSigningProfileID == profile.id ? "Open" : "Use Profile") {
-                        Task {
-                            await model.selectSigningProfile(profile.id)
-                            if model.selectedSigningProfileID == profile.id {
-                                model.jobMode = .sign
-                                model.section = .workspace
-                            }
-                        }
-                    }.disabled(model.isRunning || model.isManagingSigningProfiles || profile.issue != nil)
+                    Spacer(minLength: 0)
                     Menu {
                         Button("Rename…") { renaming = profile }
                         Button("Delete…", role: .destructive) { deleting = profile }
@@ -105,12 +104,35 @@ struct SigningProfilesView: View {
                     ).accessibilityLabel("Actions for \(profile.name)")
                     .disabled(model.isRunning || model.isManagingSigningProfiles)
                 }
-                HStack(spacing: 18) {
-                    Text("Saved \(profile.createdAt.formatted(date: .abbreviated, time: .omitted))")
-                    Text("Earliest expiry \(profile.expiresAt.formatted(date: .abbreviated, time: .omitted))")
-                        .foregroundStyle(profile.expiresAt <= Date() ? Palette.warning : Color.secondary)
-                }.font(.system(size: 12)).foregroundStyle(.secondary).padding(.leading, 62)
+                // Unreadable metadata has sentinel dates, not verified save/expiry dates.
+                if profile.createdAt != .distantPast || profile.expiresAt != .distantPast {
+                    VStack(alignment: .leading, spacing: 4) {
+                        if profile.createdAt != .distantPast {
+                            Text("Saved \(profile.createdAt.formatted(date: .abbreviated, time: .omitted))")
+                        }
+                        if profile.expiresAt != .distantPast {
+                            Text("Earliest expiry \(profile.expiresAt.formatted(date: .abbreviated, time: .omitted))")
+                                .foregroundStyle(profile.expiresAt <= Date() ? Palette.warning : Color.secondary)
+                        }
+                    }.font(.system(size: 12)).foregroundStyle(.secondary)
+                }
                 if let issue = profile.issue { InlineNotice(message: issue, color: Palette.error) }
+                HStack {
+                    if model.selectedSigningProfileID == profile.id {
+                        Label("Selected", systemImage: "checkmark.circle.fill")
+                            .font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button(model.selectedSigningProfileID == profile.id ? "Open" : "Use Profile") {
+                        Task {
+                            await model.selectSigningProfile(profile.id)
+                            if model.selectedSigningProfileID == profile.id {
+                                model.jobMode = .sign
+                                model.section = .workspace
+                            }
+                        }
+                    }.disabled(model.isRunning || model.isManagingSigningProfiles || profile.issue != nil)
+                }
             }
         }
     }

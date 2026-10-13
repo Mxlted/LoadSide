@@ -15,7 +15,7 @@ enum AppMetrics {
 /// Semantic colors follow macOS appearance and keep validation states distinct.
 enum Palette {
     static let background = Color(nsColor: .windowBackgroundColor)
-    static let surface = Color(nsColor: .controlBackgroundColor)
+    static let surface = Color(nsColor: .textBackgroundColor)
     static let field = Color(nsColor: .textBackgroundColor)
     static let separator = Color(nsColor: .separatorColor).opacity(0.45)
     static let accent = Color.accentColor
@@ -32,10 +32,10 @@ struct Panel<Content: View>: View {
         content
             .padding(padding)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Palette.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .background(Palette.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .strokeBorder(contrast == .increased ? Color.primary.opacity(0.45) : Palette.separator))
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(contrast == .increased ? Color.primary.opacity(0.5) : .clear))
     }
 }
 
@@ -44,7 +44,7 @@ struct PageHeading: View {
     var detail: String?
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(title).font(.system(size: 25, weight: .semibold))
+            Text(title).font(.title.weight(.semibold)).accessibilityAddTraits(.isHeader)
             if let detail {
                 Text(detail).font(.system(size: 14)).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -55,7 +55,7 @@ struct PageHeading: View {
 
 struct SymbolTile: View {
     let symbol: String
-    var color: Color = Palette.accent
+    var color: Color = .secondary
     var size: CGFloat = 44
     var body: some View {
         Image(systemName: symbol)
@@ -72,8 +72,11 @@ struct SectionHeading: View {
     var detail: String?
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(title).font(.system(size: 15, weight: .semibold))
-            if let detail { Text(detail).font(.system(size: 13)).foregroundStyle(.secondary) }
+            Text(title).font(.headline).accessibilityAddTraits(.isHeader)
+            if let detail {
+                Text(detail).font(.system(size: 13)).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 }
@@ -126,7 +129,7 @@ struct StatusPill: View {
             Circle().fill(color).frame(width: 6, height: 6)
             Text(status.title).font(.system(size: 12, weight: .medium))
         }
-        .foregroundStyle(color)
+        .foregroundStyle(.primary)
         .padding(.horizontal, 9).padding(.vertical, 4)
         .background(color.opacity(0.09), in: Capsule())
         .accessibilityElement(children: .combine)
@@ -152,12 +155,17 @@ struct EmptyState: View {
     let symbol: String
     let title: String
     let description: String
+    var actionTitle: String?
+    var action: (() -> Void)?
     var body: some View {
         VStack(spacing: 13) {
-            SymbolTile(symbol: symbol, size: 70).padding(.bottom, 7)
-            Text(title).font(.system(size: 21, weight: .semibold))
+            SymbolTile(symbol: symbol, size: 56).padding(.bottom, 3)
+            Text(title).font(.title2.weight(.semibold))
             Text(description).font(.system(size: 14)).foregroundStyle(.secondary).multilineTextAlignment(.center)
                 .lineSpacing(3).frame(maxWidth: 418)
+            if let actionTitle, let action {
+                Button(actionTitle, action: action).buttonStyle(.borderedProminent).controlSize(.large).padding(.top, 5)
+            }
         }.frame(maxWidth: .infinity, maxHeight: .infinity).padding(33)
     }
 }
@@ -178,13 +186,16 @@ struct MetadataRow: View {
 /// Glass belongs to the control layer; form panels intentionally remain opaque.
 private struct FloatingControlSurface: ViewModifier {
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.colorSchemeContrast) private var contrast
     var cornerRadius: CGFloat
 
     @ViewBuilder func body(content: Content) -> some View {
-        if reduceTransparency {
+        if reduceTransparency || contrast == .increased {
             content
                 .background(Palette.surface, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous).strokeBorder(Palette.separator))
+                .overlay(
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .strokeBorder(contrast == .increased ? Color.primary.opacity(0.5) : Palette.separator))
         } else {
             #if compiler(>=6.2)
                 if #available(macOS 26, *) {
@@ -205,27 +216,6 @@ private struct FloatingControlSurface: ViewModifier {
     }
 }
 
-private struct AdaptiveGlassButton: ViewModifier {
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-    var prominent: Bool
-
-    @ViewBuilder func body(content: Content) -> some View {
-        #if compiler(>=6.2)
-            if #available(macOS 26, *), !reduceTransparency {
-                if prominent { content.buttonStyle(.glassProminent) } else { content.buttonStyle(.glass) }
-            } else {
-                fallback(content)
-            }
-        #else
-            fallback(content)
-        #endif
-    }
-
-    @ViewBuilder private func fallback(_ content: Content) -> some View {
-        if prominent { content.buttonStyle(.borderedProminent) } else { content.buttonStyle(.bordered) }
-    }
-}
-
 extension View {
     func inputField() -> some View {
         self.textFieldStyle(.roundedBorder).font(.system(size: 13))
@@ -235,19 +225,17 @@ extension View {
         modifier(FloatingControlSurface(cornerRadius: cornerRadius))
     }
 
-    func adaptiveGlassButton(prominent: Bool = false) -> some View {
-        modifier(AdaptiveGlassButton(prominent: prominent))
-    }
 }
 
 /// Shared across the app so the whole disclosure header is one accessible control.
 struct FullRowDisclosureStyle: DisclosureGroupStyle {
-    var headerVerticalPadding: CGFloat = 5
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    var headerVerticalPadding: CGFloat = 7
 
     func makeBody(configuration: Configuration) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             Button {
-                withAnimation { configuration.isExpanded.toggle() }
+                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.18)) { configuration.isExpanded.toggle() }
             } label: {
                 HStack(spacing: 5) {
                     Image(systemName: "chevron.right")
@@ -256,6 +244,7 @@ struct FullRowDisclosureStyle: DisclosureGroupStyle {
                         .accessibilityHidden(true)
                     configuration.label
                         .frame(maxWidth: .infinity, alignment: .leading)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 .padding(.vertical, headerVerticalPadding)
                 .contentShape(Rectangle())

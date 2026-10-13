@@ -16,13 +16,14 @@ final class WorkspaceAccessibilityTests: XCTestCase {
         let destinations: [(AppSection, String?)] = [
             (.guide, nil), (.activity, "No export activity"),
             (.signingProfiles, "No saved signing profiles"),
-            (.library, "Your next export appears here"), (.workspace, "Prepare an app")
+            (.library, "Local Library"), (.workspace, nil)
         ]
         for (section, heading) in destinations {
             try await host.press(identifier: "navigation.\(section)")
             try await host.wait("Navigate to \(section.rawValue)") {
                 fixture.model.section == section && (heading.map { host.contains(text: $0) } ?? true)
                     && host.find(identifier: "navigation.\(section)")?.hasSelectedTrait == true
+                    && (section != .workspace || host.find(identifier: "export") != nil)
             }
         }
         XCTAssertTrue(fixture.model.history.isEmpty)
@@ -177,13 +178,18 @@ private struct SigningOptionsHarness: View {
 /// Only private temporary stores enter the app. Remembered passwords remain in
 /// memory; the fixture never reads user history, profiles, or the macOS Keychain.
 @MainActor
-private final class WorkspaceUIFixture {
+final class WorkspaceUIFixture {
     let directory: URL
     let model: WorkspaceModel
 
-    init() async throws {
+    init(unreadableProfile: Bool = false) async throws {
         directory = FileManager.default.temporaryDirectory.appendingPathComponent("LoadSide-UI-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+        if unreadableProfile {
+            try FileManager.default.createDirectory(
+                at: directory.appendingPathComponent("profiles/00000000-0000-0000-0000-000000000001"),
+                withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        }
         model = WorkspaceModel(
             historyStore: JobHistoryStore(url: directory.appendingPathComponent("history.json")),
             savedProfileStore: SavedSigningProfileStore(
@@ -211,10 +217,10 @@ private final class MemoryPasswords: SigningProfilePasswordStorage, @unchecked S
     func delete(for id: UUID) { lock.withLock { passwords[id] = nil } }
 }
 
-/// Uses only public AppKit accessibility methods, within the test process. A
-/// graphical macOS session is required; Accessibility permission is not required.
+/// Uses public AppKit views, table selection, and accessibility APIs in-process.
+/// A graphical macOS session is required; Accessibility permission is not required.
 @MainActor
-private final class AccessibilityHost {
+final class AccessibilityHost {
     private static let application: NSApplication = {
         let application = NSApplication.shared
         application.finishLaunching()
@@ -222,18 +228,95 @@ private final class AccessibilityHost {
     }()
     private let window: NSWindow
     private let view: NSHostingView<AnyView>
+    private var requestedSize: CGSize
+    private let nativeWindow: Bool
 
-    init<Content: View>(_ content: Content) {
+    init<Content: View>(_ content: Content, configuration: UIHostConfiguration = .standard) {
         _ = Self.application
+        requestedSize = configuration.size
+        nativeWindow = configuration.nativeWindow
         // Explicitly enable the documented SwiftUI accessibility environment so
         // tests don't depend on whether the user runs an assistive technology.
-        view = NSHostingView(rootView: AnyView(content.environment(\.accessibilityEnabled, true)))
+        view = NSHostingView(
+            rootView: AnyView(
+                content
+                    .tint(Palette.accent)
+                    .font(.system(size: 14))
+                    .controlSize(.regular)
+                    .environment(\.accessibilityEnabled, true)
+                    .environment(\.colorScheme, configuration.colorScheme)))
+        // Keep the requested viewport fixed when a destination's ideal size
+        // changes. Native window sizing otherwise expands some hosted screens.
+        if !configuration.nativeWindow { view.sizingOptions = [] }
         window = NSWindow(
-            contentRect: NSRect(x: -10_000, y: -10_000, width: 1408, height: 900),
-            styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+            contentRect: NSRect(origin: NSPoint(x: -10_000, y: -10_000), size: configuration.size),
+            // These are content snapshots. A titlebar makes NavigationSplitView
+            // extend its hosting view into extra toolbar safe-area space.
+            styleMask: configuration.nativeWindow ? [.titled, .closable, .resizable] : [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
+        window.appearance = NSAppearance(named: configuration.appearance)
         window.contentView = view
+        window.setContentSize(configuration.size)
         window.orderFront(nil)
+    }
+
+    /// Optional test artifacts only. These capture hosted content, not the
+    /// WindowServer-composited glass or application window chrome.
+    func snapshot(_ name: String) async throws {
+        view.layoutSubtreeIfNeeded()
+        pumpRunLoop()
+        assertWindowSize()
+        guard let path = ProcessInfo.processInfo.environment["LOADSIDE_UI_SNAPSHOT_DIR"], !path.isEmpty else { return }
+        // Native navigation may still be compositing its destination after the
+        // accessibility tree updates. Capture the settled view, not that transition.
+        try await Task.sleep(for: .milliseconds(350))
+        view.layoutSubtreeIfNeeded()
+        view.needsDisplay = true
+        view.display()
+        let directory = URL(fileURLWithPath: path, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let bitmap = try XCTUnwrap(view.bitmapImageRepForCachingDisplay(in: viewport))
+        view.cacheDisplay(in: viewport, to: bitmap)
+        let data = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+        try data.write(to: directory.appendingPathComponent(name + ".png"), options: .atomic)
+    }
+
+    func assertVisible(_ element: AccessibilityElement, file: StaticString = #filePath, line: UInt = #line) {
+        assertWindowSize(file: file, line: line)
+        let frame = element.frame
+        let visible = window.convertToScreen(view.convert(viewport, to: nil))
+        XCTAssertGreaterThan(frame.width, 0, file: file, line: line)
+        XCTAssertGreaterThan(frame.height, 0, file: file, line: line)
+        XCTAssertTrue(
+            visible.insetBy(dx: -1, dy: -1).contains(frame), "Control is clipped: \(frame) outside \(visible)", file: file, line: line)
+    }
+
+    private func assertWindowSize(file: StaticString = #filePath, line: UInt = #line) {
+        XCTAssertEqual(viewport.width, requestedSize.width, accuracy: 1, "Hosted width changed", file: file, line: line)
+        XCTAssertEqual(
+            viewport.height, requestedSize.height, accuracy: 1,
+            "Hosted height changed (bounds \(view.bounds), safe area \(view.safeAreaRect), content \(window.contentLayoutRect))",
+            file: file,
+            line: line)
+    }
+
+    /// SwiftUI's native toolbar can occupy part of the content view even when
+    /// AppKit's contentLayoutRect includes it. Use the hosting view's safe area.
+    private var viewport: NSRect { nativeWindow ? view.safeAreaRect : view.bounds }
+
+    func resize(to size: CGSize) async throws {
+        requestedSize = size
+        let insets = nativeWindow ? view.safeAreaInsets : NSEdgeInsets()
+        let contentSize = CGSize(
+            width: size.width + insets.left + insets.right,
+            height: size.height + insets.top + insets.bottom)
+        XCTAssertLessThanOrEqual(window.contentMinSize.width, contentSize.width, "Window cannot shrink to the requested width")
+        XCTAssertLessThanOrEqual(window.contentMinSize.height, contentSize.height, "Window cannot shrink to the requested height")
+        window.setContentSize(contentSize)
+        try await wait("Resize native content to \(size)") {
+            abs(self.viewport.width - size.width) <= 1 && abs(self.viewport.height - size.height) <= 1
+        }
+        assertWindowSize()
     }
 
     func close() {
@@ -272,10 +355,43 @@ private final class AccessibilityHost {
     ) async throws {
         let control = try await element(identifier: identifier, label: label, labelPrefix: labelPrefix, role: role, file: file, line: line)
         XCTAssertTrue(control.isEnabled, "The requested control is disabled", file: file, line: line)
+        if let identifier, let (table, row) = nativeListRow(identifier: identifier) {
+            // SwiftUI's NSOutlineRow objects don't conform to NSAccessibilityRow
+            // in-process; its selected-rows AX setter traps while bridging them.
+            // Use AppKit's native selection path, retaining the real List binding.
+            await withCheckedContinuation { continuation in
+                DispatchQueue.main.async {
+                    table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+                    continuation.resume()
+                }
+            }
+            return
+        }
         let accepted = await withCheckedContinuation { continuation in
             DispatchQueue.main.async { continuation.resume(returning: control.press()) }
         }
         XCTAssertTrue(accepted, "The control did not accept its accessibility press action", file: file, line: line)
+    }
+
+    private func nativeListRow(identifier: String) -> (NSTableView, Int)? {
+        var pending: [NSView] = [view]
+        while let candidate = pending.popLast() {
+            pending.append(contentsOf: candidate.subviews)
+            guard
+                (candidate.accessibilityChildren() ?? []).contains(where: {
+                    AccessibilityElement(object: $0 as AnyObject).identifier == identifier
+                })
+            else { continue }
+            var ancestor = candidate.superview
+            while let parent = ancestor {
+                if let table = parent as? NSTableView {
+                    let row = table.row(for: candidate)
+                    if row >= 0 { return (table, row) }
+                }
+                ancestor = parent.superview
+            }
+        }
+        return nil
     }
 
     func find(identifier: String? = nil, label: String? = nil, labelPrefix: String? = nil, role: NSAccessibility.Role? = nil)
@@ -295,7 +411,7 @@ private final class AccessibilityHost {
 
     private var description: String {
         elements.map {
-            "\($0.role?.rawValue ?? "?") id=\($0.identifier ?? "") label=\($0.label ?? "") value=\(String(describing: $0.value))"
+            "\(type(of: $0.object)) \($0.role?.rawValue ?? "?") id=\($0.identifier ?? "") label=\($0.label ?? "") value=\(String(describing: $0.value))"
         }
         .joined(separator: "\n")
     }
@@ -309,6 +425,10 @@ private final class AccessibilityHost {
             guard visited.insert(ObjectIdentifier(element.object)).inserted else { continue }
             result.append(element)
             pending.append(contentsOf: element.children)
+            // Native Lists and scroll containers expose additional hosting views
+            // below their AppKit rows. Traverse those public views as well as AX
+            // children to reach the same production controls in-process.
+            if let nativeView = candidate as? NSView { pending.append(contentsOf: nativeView.subviews) }
         }
         return result
     }
@@ -318,7 +438,7 @@ private final class AccessibilityHost {
 /// SwiftUI virtual nodes implement the documented Objective-C accessibility
 /// methods without conforming to the complete NSAccessibilityProtocol.
 @MainActor
-private struct AccessibilityElement {
+struct AccessibilityElement {
     let object: AnyObject
     var identifier: String? { object.accessibilityIdentifier?() ?? nil }
     var label: String? { object.accessibilityLabel?() ?? nil }
@@ -327,6 +447,10 @@ private struct AccessibilityElement {
     var isEnabled: Bool { object.isAccessibilityEnabled?() ?? false }
     var isSelected: Bool { (value as? NSNumber)?.boolValue == true }
     var hasSelectedTrait: Bool { object.isAccessibilitySelected?() ?? false }
-    var children: [Any] { object.accessibilityChildren?() ?? [] }
+    var children: [Any] {
+        (object.accessibilityChildren?() ?? []) + (object.accessibilityRows?() ?? [])
+            + (object.accessibilityVisibleChildren?() ?? []) + (object.accessibilityContents?() ?? [])
+    }
+    var frame: NSRect { object.accessibilityFrame?() ?? .zero }
     func press() -> Bool { object.accessibilityPerformPress?() ?? false }
 }

@@ -10,7 +10,7 @@ struct ActivityView: View {
                 PageHeading(title: "Activity", detail: "Signed and unsigned exports, verification details, and logs.")
                 Spacer()
                 if !model.history.isEmpty {
-                    Button("Clear History…") { confirmClear = true }.adaptiveGlassButton()
+                    Button("Clear History…") { confirmClear = true }
                 }
             }.padding(AppMetrics.pagePadding)
             if let notice = model.storageNotice { InlineNotice(message: notice).padding(.horizontal, 26).padding(.bottom, 17) }
@@ -27,7 +27,7 @@ struct ActivityView: View {
                         )
                     ) {
                         ForEach(model.history) { job in
-                            VStack(alignment: .leading, spacing: 10) {
+                            VStack(alignment: .leading, spacing: 8) {
                                 Text(job.sourceName).font(.system(size: 14, weight: .medium)).lineLimit(2).truncationMode(.middle)
                                 StatusPill(status: job.status)
                                 if job.jobMode == .injectOnly {
@@ -36,14 +36,14 @@ struct ActivityView: View {
                                 Text(job.startedAt.formatted(date: .abbreviated, time: .shortened))
                                     .font(.system(size: 12)).foregroundStyle(.secondary)
                             }
-                            .padding(.vertical, 10).tag(job.id)
+                            .padding(.vertical, 8).tag(job.id)
                             .accessibilityElement(children: .combine)
                         }
                     }
                     .listStyle(.inset).scrollContentBackground(.hidden)
                     .frame(minWidth: 231, idealWidth: 275, maxWidth: 330)
                     if let job = model.selectedJob {
-                        ScrollView { JobDetailView(model: model, job: job).padding(22) }.frame(minWidth: 418, maxWidth: .infinity)
+                        ScrollView { JobDetailView(model: model, job: job).padding(24) }.frame(minWidth: 418, maxWidth: .infinity)
                     }
                 }
             }
@@ -57,11 +57,13 @@ struct ActivityView: View {
     }
 }
 
-private struct JobDetailView: View {
+struct JobDetailView: View {
     @ObservedObject var model: WorkspaceModel
     let job: JobRecord
+    private var outputExists: Bool { FileManager.default.fileExists(atPath: job.output.path) }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 26) {
+        VStack(alignment: .leading, spacing: 20) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(job.result?.displayName ?? job.injectionResult?.displayName ?? job.sourceName).font(
@@ -71,6 +73,11 @@ private struct JobDetailView: View {
                 }
                 Spacer()
                 StatusPill(status: job.status)
+            }
+            resultActions
+            if job.status == .completed, !outputExists {
+                Text("The exported IPA has been moved or deleted. Its verification record and diagnostics are still available here.")
+                    .font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
             if job.status == .running {
                 ProgressView(value: job.events.map(\.fraction).max() ?? 0)
@@ -84,7 +91,8 @@ private struct JobDetailView: View {
                     symbol: "signature")
             }
             Panel {
-                VStack(alignment: .leading, spacing: 13) {
+                VStack(alignment: .leading, spacing: 12) {
+                    SectionHeading(title: job.status == .completed ? "Export details" : "Session details")
                     MetadataRow(label: "Workflow", value: job.jobMode == .injectOnly ? "Inject only · unsigned export" : "Sign and export")
                     if let result = job.result {
                         MetadataRow(label: "Bundle ID", value: result.bundleIdentifier, monospaced: true)
@@ -97,6 +105,7 @@ private struct JobDetailView: View {
                         VStack(alignment: .leading, spacing: 6) {
                             Text("SHA-256").font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary)
                             Text(result.sha256).font(.system(size: 12, design: .monospaced)).textSelection(.enabled)
+                                .fixedSize(horizontal: false, vertical: true)
                         }
                     }
                     if let result = job.injectionResult {
@@ -107,6 +116,7 @@ private struct JobDetailView: View {
                         VStack(alignment: .leading, spacing: 6) {
                             Text("SHA-256").font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary)
                             Text(result.sha256).font(.system(size: 12, design: .monospaced)).textSelection(.enabled)
+                                .fixedSize(horizontal: false, vertical: true)
                         }
                     }
                     if job.jobMode != .injectOnly {
@@ -128,25 +138,6 @@ private struct JobDetailView: View {
             if let warnings = job.result?.warnings ?? job.injectionResult?.warnings {
                 ForEach(Array(warnings.enumerated()), id: \.offset) { _, warning in InlineNotice(message: warning) }
             }
-            HStack {
-                if job.status == .completed {
-                    Button {
-                        model.reveal(job.output)
-                    } label: {
-                        Label("Show in Finder", systemImage: "folder")
-                    }
-                    .disabled(!FileManager.default.fileExists(atPath: job.output.path))
-                    .help(
-                        FileManager.default.fileExists(atPath: job.output.path)
-                            ? "Reveal exported IPA" : "This export has been moved or deleted")
-                }
-                Button {
-                    model.exportDiagnostics(job)
-                } label: {
-                    Label("Save Diagnostics…", systemImage: "square.and.arrow.up")
-                }
-                Spacer()
-            }
             Divider()
             HStack {
                 SectionHeading(title: "Event log")
@@ -154,7 +145,8 @@ private struct JobDetailView: View {
                 Text("\(job.events.count) events").font(.system(size: 12)).foregroundStyle(.secondary)
             }
             if job.events.isEmpty {
-                Text("Waiting for the export engine…").font(.system(size: 12)).foregroundStyle(.secondary)
+                Text(job.status == .running ? "Waiting for the export engine…" : "No events were recorded.")
+                    .font(.system(size: 12)).foregroundStyle(.secondary)
             } else {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     ForEach(job.events) { event in
@@ -172,6 +164,7 @@ private struct JobDetailView: View {
                             Text(event.message).font(.system(size: 12, design: .monospaced)).foregroundStyle(
                                 event.level == .info ? Color.primary.opacity(0.85) : eventColor(event)
                             ).textSelection(.enabled)
+                                .fixedSize(horizontal: false, vertical: true)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }.padding(.vertical, 11)
                         Divider()
@@ -180,6 +173,31 @@ private struct JobDetailView: View {
             }
         }
     }
+
+    private var resultActions: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 10) { actionButtons }
+            VStack(alignment: .leading, spacing: 10) { actionButtons }
+        }
+    }
+
+    @ViewBuilder private var actionButtons: some View {
+        if job.status == .completed {
+            Button {
+                model.reveal(job.output)
+            } label: {
+                Label("Show in Finder", systemImage: "folder")
+            }
+            .disabled(!outputExists)
+            .help(outputExists ? "Reveal exported IPA" : "This export has been moved or deleted")
+        }
+        Button {
+            model.exportDiagnostics(job)
+        } label: {
+            Label("Save Diagnostics…", systemImage: "square.and.arrow.up")
+        }
+    }
+
     private func eventColor(_ event: SigningEvent) -> Color {
         switch event.level {
         case .info: .secondary
