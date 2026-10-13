@@ -1,5 +1,5 @@
-import SwiftUI
 import LoadSideCore
+import SwiftUI
 
 struct WorkspaceView: View {
     @ObservedObject var model: WorkspaceModel
@@ -93,9 +93,13 @@ struct WorkspaceView: View {
                     Text(model.ipaInspection?.displayName ?? model.ipa?.deletingPathExtension().lastPathComponent ?? "Add an IPA")
                         .font(.system(size: 17, weight: .semibold)).lineLimit(1).truncationMode(.middle)
                     if let ipa = model.ipa {
-                        Text(ipa.lastPathComponent).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle).help(ipa.path)
+                        Text(ipa.lastPathComponent).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                            .help(ipa.path)
                         if model.isInspectingIPA {
-                            HStack(spacing: 6) { ProgressView().controlSize(.mini); Text("Inspecting application…") }.font(.system(size: 12)).foregroundStyle(.secondary)
+                            HStack(spacing: 6) {
+                                ProgressView().controlSize(.mini)
+                                Text("Inspecting application…")
+                            }.font(.system(size: 12)).foregroundStyle(.secondary)
                         } else if let inspection = model.ipaInspection {
                             HStack(spacing: 8) {
                                 Text(inspection.bundleIdentifier).lineLimit(1).truncationMode(.middle)
@@ -104,7 +108,8 @@ struct WorkspaceView: View {
                             }.font(.system(size: 11, design: .monospaced)).foregroundStyle(.secondary)
                         }
                     } else {
-                        Text("Drop it here or choose a file. Your original stays unchanged. IPA must be decrypted.").font(.system(size: 13)).foregroundStyle(.secondary)
+                        Text("Drop it here or choose a file. Your original stays unchanged. IPA must be decrypted.").font(.system(size: 13))
+                            .foregroundStyle(.secondary)
                     }
                 }
                 Spacer(minLength: 9)
@@ -117,14 +122,22 @@ struct WorkspaceView: View {
             .padding(15)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(isDropTarget ? Palette.accent.opacity(0.1) : Palette.surface, in: RoundedRectangle(cornerRadius: 20))
-            .overlay(RoundedRectangle(cornerRadius: 20).strokeBorder(isDropTarget ? Palette.accent : Palette.separator, style: StrokeStyle(lineWidth: isDropTarget ? 2 : 1, dash: model.ipa == nil ? [6, 4] : [])))
+            .overlay(
+                RoundedRectangle(cornerRadius: 20).strokeBorder(
+                    isDropTarget ? Palette.accent : Palette.separator,
+                    style: StrokeStyle(lineWidth: isDropTarget ? 2 : 1, dash: model.ipa == nil ? [6, 4] : []))
+            )
             .contentShape(RoundedRectangle(cornerRadius: 20))
         }
         .buttonStyle(.plain)
         .disabled(model.isRunning || model.isManagingSigningProfiles)
         .help("Choose a decrypted IPA (⌘O)")
         .accessibilityLabel(model.ipa == nil ? "Add an IPA" : "Change IPA")
-        .dropDestination(for: URL.self) { urls, _ in model.accept(urls, kind: .ipa) } isTargeted: { isDropTarget = $0 }
+        .dropDestination(for: URL.self) { urls, _ in
+            model.accept(urls, kind: .ipa)
+        } isTargeted: {
+            isDropTarget = $0
+        }
         .overlay(alignment: .bottomLeading) {
             if model.ipaInspectionError != nil { Rectangle().fill(Palette.error).frame(width: 3).padding(.vertical, 13) }
         }
@@ -139,20 +152,30 @@ struct WorkspaceView: View {
             }
             Panel(padding: 15) {
                 VStack(alignment: .leading, spacing: 11) {
-                    Picker("Saved profile", selection: Binding<UUID?>(get: { model.selectedSigningProfileID }, set: { id in Task { await model.selectSigningProfile(id) } })) {
+                    Picker(
+                        "Saved profile",
+                        selection: Binding<UUID?>(
+                            get: { model.selectedSigningProfileID }, set: { id in Task { await model.selectSigningProfile(id) } })
+                    ) {
                         Text("Imported files").tag(nil as UUID?)
                         ForEach(model.savedSigningProfiles) { profile in Text(profile.name).tag(Optional(profile.id)) }
                     }.font(.system(size: 13)).disabled(model.isManagingSigningProfiles)
-                    if model.isManagingSigningProfiles { ProgressView("Updating signing profile…").controlSize(.small).font(.system(size: 12)) }
+                    if model.isManagingSigningProfiles {
+                        ProgressView("Updating signing profile…").controlSize(.small).font(.system(size: 12))
+                    }
                     Divider()
                     VStack(alignment: .leading, spacing: 9) {
                         HStack {
                             Text("Certificate").font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary)
                             Spacer()
-                            Button(model.certificate == nil ? "Import P12…" : "Replace…", action: model.chooseCertificate).controlSize(.regular)
+                            Button(model.certificate == nil ? "Import P12…" : "Replace…", action: model.chooseCertificate).controlSize(
+                                .regular)
                         }
                         if let certificate = model.certificate {
-                            FileRow(url: certificate, symbol: "key.horizontal") { model.certificate = nil; model.password = "" }
+                            FileRow(url: certificate, symbol: "key.horizontal") {
+                                model.certificate = nil
+                                model.password = ""
+                            }
                         } else {
                             Text("Import your Apple certificate and private key.").font(.system(size: 12)).foregroundStyle(.tertiary)
                         }
@@ -185,7 +208,9 @@ struct WorkspaceView: View {
                     }
                 }
             }
-            .dropDestination(for: URL.self) { urls, _ in model.accept(urls.filter { ["p12", "pfx", "mobileprovision"].contains($0.pathExtension.lowercased()) }) }
+            .dropDestination(for: URL.self) { urls, _ in
+                model.accept(urls.filter { ["p12", "pfx", "mobileprovision"].contains($0.pathExtension.lowercased()) })
+            }
             if let notice = model.savedProfileNotice { InlineNotice(message: notice, color: Palette.accent, symbol: "info.circle") }
         }.disabled(model.isRunning || model.isManagingSigningProfiles)
     }
@@ -200,15 +225,26 @@ struct WorkspaceView: View {
             }.help(url.path)
             switch model.profileInspections[url] {
             case .valid(let profile):
-                Text(profile.applicationIdentifier).font(.system(size: 11, design: .monospaced)).foregroundStyle(.secondary).textSelection(.enabled)
-                Text("\(profile.distribution) · \(profile.deviceCount) devices · Expires \(profile.expiresAt.formatted(date: .abbreviated, time: .omitted))")
-                    .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                if profile.distribution == "App Store" { InlineNotice(message: "App Store profiles cannot authorize a direct-install export. Choose an Ad Hoc, Development, or Enterprise profile.") }
+                Text(profile.applicationIdentifier).font(.system(size: 11, design: .monospaced)).foregroundStyle(.secondary).textSelection(
+                    .enabled)
+                Text(
+                    "\(profile.distribution) · \(profile.deviceCount) devices · Expires \(profile.expiresAt.formatted(date: .abbreviated, time: .omitted))"
+                )
+                .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                if profile.distribution == "App Store" {
+                    InlineNotice(
+                        message:
+                            "App Store profiles cannot authorize a direct-install export. Choose an Ad Hoc, Development, or Enterprise profile."
+                    )
+                }
             case .invalid(let message, let recovery):
                 InlineNotice(message: message + " " + recovery, color: Palette.error)
                 Button("Check again") { model.inspectProfile(url) }.buttonStyle(.link).font(.system(size: 12))
             case .inspecting, .none:
-                HStack(spacing: 6) { ProgressView().controlSize(.mini); Text("Validating profile…").font(.system(size: 11)).foregroundStyle(.secondary) }
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.mini)
+                    Text("Validating profile…").font(.system(size: 11)).foregroundStyle(.secondary)
+                }
             }
         }.padding(.vertical, 2)
     }
@@ -230,26 +266,39 @@ struct WorkspaceView: View {
                             Text("Automatic").tag(BundleIdentifierPolicy.automatic)
                         }.pickerStyle(.segmented).labelsHidden()
                         if let suggestion = model.identifierSuggestion {
-                            Text(suggestion.effectiveIdentifier).font(.system(size: 13, weight: .medium, design: .monospaced)).textSelection(.enabled)
+                            Text(suggestion.effectiveIdentifier).font(.system(size: 13, weight: .medium, design: .monospaced))
+                                .textSelection(.enabled)
                             if suggestion.usesProfileIdentity {
                                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                                     Text("Profile signing ID:").foregroundStyle(.secondary)
-                                    Text(suggestion.profileBundleIdentifier).font(.system(size: 12, design: .monospaced)).textSelection(.enabled)
+                                    Text(suggestion.profileBundleIdentifier).font(.system(size: 12, design: .monospaced)).textSelection(
+                                        .enabled)
                                 }.font(.system(size: 12)).fixedSize(horizontal: false, vertical: true)
-                                InlineNotice(message: "Keeps the app’s original bundle ID and uses your profile’s identity in the signature. This compatibility mode may affect keychain access and app services; device behavior is unverified.", color: Palette.warning, symbol: "exclamationmark.triangle")
+                                InlineNotice(
+                                    message:
+                                        "Keeps the app’s original bundle ID and uses your profile’s identity in the signature. This compatibility mode may affect keychain access and app services; device behavior is unverified.",
+                                    color: Palette.warning, symbol: "exclamationmark.triangle")
                             } else if suggestion.changesIdentifier {
-                                Text("Changed from \(suggestion.originalIdentifier)").font(.system(size: 11, design: .monospaced)).foregroundStyle(.secondary).textSelection(.enabled)
+                                Text("Changed from \(suggestion.originalIdentifier)").font(.system(size: 11, design: .monospaced))
+                                    .foregroundStyle(.secondary).textSelection(.enabled)
                                 InlineNotice(message: suggestion.reason, color: Palette.accent, symbol: "arrow.triangle.2.circlepath")
                             } else {
-                                Text(suggestion.reason).font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                                Text(suggestion.reason).font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(
+                                    horizontal: false, vertical: true)
                             }
                         } else {
-                            Text(model.identifierPolicy == .automatic ? "Uses an unambiguous profile ID only if the original ID is not authorized." : "Keeps the app’s original bundle ID. When needed, the signature uses your profile’s exact app identity.")
-                                .font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                            Text(
+                                model.identifierPolicy == .automatic
+                                    ? "Uses an unambiguous profile ID only if the original ID is not authorized."
+                                    : "Keeps the app’s original bundle ID. When needed, the signature uses your profile’s exact app identity."
+                            )
+                            .font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                         }
                         if let error = model.identifierSuggestionError {
                             InlineNotice(message: error, color: Palette.error)
-                            if let recovery = model.identifierSuggestionRecovery { Text(recovery).font(.system(size: 12)).foregroundStyle(.secondary) }
+                            if let recovery = model.identifierSuggestionRecovery {
+                                Text(recovery).font(.system(size: 12)).foregroundStyle(.secondary)
+                            }
                         }
                         if model.identifierSuggestion != nil {
                             Text("Certificate authorization is verified when signing starts.")
@@ -260,15 +309,23 @@ struct WorkspaceView: View {
                     DisclosureGroup(isExpanded: $showExtensionOptions) {
                         extensionPlan.padding(.top, 11)
                     } label: {
-                        optionSummary("Extensions", value: model.removeExtensions ? "Remove from export" : model.extensionProfilePolicy == .reuseMain ? "Reuse main · experimental" : "Matching profiles", warning: model.removeExtensions || model.extensionProfilePolicy == .reuseMain)
+                        optionSummary(
+                            "Extensions",
+                            value: model.removeExtensions
+                                ? "Remove from export"
+                                : model.extensionProfilePolicy == .reuseMain ? "Reuse main · experimental" : "Matching profiles",
+                            warning: model.removeExtensions || model.extensionProfilePolicy == .reuseMain)
                     }
                     .font(.system(size: 13))
                     if !showExtensionOptions, !model.blockingExtensionIdentifiers.isEmpty, !model.removeExtensions {
-                        InlineNotice(message: "\(model.blockingExtensionIdentifiers.count) extension(s) need profiles. Open Extensions to review.")
+                        InlineNotice(
+                            message: "\(model.blockingExtensionIdentifiers.count) extension(s) need profiles. Open Extensions to review.")
                     }
                     if !showExtensionOptions, !model.compatibilityExtensionIdentifiers.isEmpty, !model.removeExtensions {
-                        Text("\(model.compatibilityExtensionIdentifiers.count) extension(s) will share the main signing identity. Device behavior is unverified.")
-                            .font(.system(size: 12)).foregroundStyle(Palette.warning).fixedSize(horizontal: false, vertical: true)
+                        Text(
+                            "\(model.compatibilityExtensionIdentifiers.count) extension(s) will share the main signing identity. Device behavior is unverified."
+                        )
+                        .font(.system(size: 12)).foregroundStyle(Palette.warning).fixedSize(horizontal: false, vertical: true)
                     }
                     if !showExtensionOptions, !model.unmatchedNestedAppIdentifiers.isEmpty {
                         InlineNotice(message: "Nested apps need matching profiles. Open Extensions to review.")
@@ -280,19 +337,30 @@ struct WorkspaceView: View {
                                 Text("Strict").tag(EntitlementPolicy.strict)
                                 Text("Compatible").tag(EntitlementPolicy.compatible)
                             }.pickerStyle(.segmented).labelsHidden()
-                            Text(model.policy == .strict ? "Keeps authorized capabilities; stops when others cannot be preserved. Unapproved Apple-restricted entitlements are omitted and logged." : "Removes unsupported capabilities and records each change. Push notifications, app groups, or other features may stop working.")
-                                .font(.system(size: 12)).foregroundStyle(model.policy == .strict ? Color.secondary : Palette.warning).fixedSize(horizontal: false, vertical: true)
+                            Text(
+                                model.policy == .strict
+                                    ? "Keeps authorized capabilities; stops when others cannot be preserved. Unapproved Apple-restricted entitlements are omitted and logged."
+                                    : "Removes unsupported capabilities and records each change. Push notifications, app groups, or other features may stop working."
+                            )
+                            .font(.system(size: 12)).foregroundStyle(model.policy == .strict ? Color.secondary : Palette.warning).fixedSize(
+                                horizontal: false, vertical: true)
                         }.padding(.top, 11)
                     } label: {
-                        optionSummary("Entitlements", value: model.policy == .strict ? "Strict" : "Compatible · may remove features", warning: model.policy == .compatible)
+                        optionSummary(
+                            "Entitlements", value: model.policy == .strict ? "Strict" : "Compatible · may remove features",
+                            warning: model.policy == .compatible)
                     }
                     .font(.system(size: 13))
                     Divider()
                     DisclosureGroup("App overrides", isExpanded: $model.showAdvanced) {
                         VStack(alignment: .leading, spacing: 11) {
-                            TextField("Bundle ID (optional)", text: $model.bundleIdentifier).inputField().accessibilityLabel("Explicit bundle identifier override")
-                            Text("An explicit ID overrides the selection above and must be authorized by a supplied profile.").font(.system(size: 12)).foregroundStyle(.secondary)
-                            TextField("Display name (optional)", text: $model.displayName).inputField().accessibilityLabel("App display name override")
+                            TextField("Bundle ID (optional)", text: $model.bundleIdentifier).inputField().accessibilityLabel(
+                                "Explicit bundle identifier override")
+                            Text("An explicit ID overrides the selection above and must be authorized by a supplied profile.").font(
+                                .system(size: 12)
+                            ).foregroundStyle(.secondary)
+                            TextField("Display name (optional)", text: $model.displayName).inputField().accessibilityLabel(
+                                "App display name override")
                         }.padding(.top, 9)
                     }.font(.system(size: 12, weight: .medium))
                 }
@@ -322,14 +390,17 @@ struct WorkspaceView: View {
                     Divider()
                     Label("Signing required before installation", systemImage: "signature")
                         .font(.system(size: 13, weight: .medium)).foregroundStyle(Palette.warning)
-                    Text("The export is unsigned and cannot be installed directly. Sign it later with LoadSide or another compatible signing tool.")
-                        .font(.system(size: 13)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    Text(
+                        "The export is unsigned and cannot be installed directly. Sign it later with LoadSide or another compatible signing tool."
+                    )
+                    .font(.system(size: 13)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     Divider()
                     Text("DEB scripts never run. LoadSide checks archive paths, binary compatibility, and dependencies before exporting.")
                         .font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     DisclosureGroup("App options", isExpanded: $model.showAdvanced) {
                         VStack(alignment: .leading, spacing: 11) {
-                            TextField("Display name (optional)", text: $model.displayName).inputField().accessibilityLabel("App display name override")
+                            TextField("Display name (optional)", text: $model.displayName).inputField().accessibilityLabel(
+                                "App display name override")
                             Toggle("Remove app extensions", isOn: $model.removeExtensions).toggleStyle(.checkbox)
                             if model.removeExtensions {
                                 Text("The export will lose widgets, share actions, and other extension features.")
@@ -364,7 +435,9 @@ struct WorkspaceView: View {
                         .font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     DisclosureGroup("Experimental compatibility", isExpanded: $showCompatibilityDetails) {
                         VStack(alignment: .leading, spacing: 9) {
-                            Text("Extensions keep their bundle IDs but may share the main app’s signing identity and keychain access. File importing, app groups, and other features may fail. Device behavior is unverified.")
+                            Text(
+                                "Extensions keep their bundle IDs but may share the main app’s signing identity and keychain access. File importing, app groups, and other features may fail. Device behavior is unverified."
+                            )
                             if !model.compatibilityExtensionIdentifiers.isEmpty {
                                 Text("Using shared identity: \(model.compatibilityExtensionIdentifiers.joined(separator: ", "))")
                                     .font(.system(size: 12, design: .monospaced)).textSelection(.enabled)
@@ -397,7 +470,9 @@ struct WorkspaceView: View {
                             HStack(alignment: .top, spacing: 7) {
                                 if model.unmatchedExtensionIdentifiers.contains(effective) && !model.removeExtensions {
                                     Image(systemName: "exclamationmark.circle").foregroundStyle(Palette.warning)
-                                        .help(model.compatibilityExtensionIdentifiers.contains(effective) ? "Will reuse the main profile’s identity" : "Needs a matching profile")
+                                        .help(
+                                            model.compatibilityExtensionIdentifiers.contains(effective)
+                                                ? "Will reuse the main profile’s identity" : "Needs a matching profile")
                                 }
                                 Text(effective).textSelection(.enabled)
                             }.font(.system(size: 12, design: .monospaced)).foregroundStyle(.secondary)
@@ -408,16 +483,22 @@ struct WorkspaceView: View {
                 Text("This app has no extensions.").font(.system(size: 12)).foregroundStyle(.tertiary)
             }
             if !model.unmatchedNestedAppIdentifiers.isEmpty {
-                InlineNotice(message: "Nested apps need matching profiles: \(model.unmatchedNestedAppIdentifiers.joined(separator: ", ")). Main-profile reuse applies only to extensions.")
+                InlineNotice(
+                    message:
+                        "Nested apps need matching profiles: \(model.unmatchedNestedAppIdentifiers.joined(separator: ", ")). Main-profile reuse applies only to extensions."
+                )
             }
         }
     }
 
     private func extensionChoice(_ policy: ExtensionProfilePolicy, title: String) -> some View {
-        Toggle(title, isOn: Binding(
-            get: { model.extensionProfilePolicy == policy },
-            set: { model.selectExtensionProfilePolicy(policy, isSelected: $0) }
-        ))
+        Toggle(
+            title,
+            isOn: Binding(
+                get: { model.extensionProfilePolicy == policy },
+                set: { model.selectExtensionProfilePolicy(policy, isSelected: $0) }
+            )
+        )
         .toggleStyle(.checkbox)
         .font(.system(size: 13))
         .accessibilityHint("Choose one extension profile policy. Selecting this option replaces the other selection.")
@@ -426,7 +507,9 @@ struct WorkspaceView: View {
     private var injections: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                SectionHeading(title: "Injected libraries", detail: model.jobMode == .sign ? "Optional · DEB, dylib, or framework" : "Add a DEB, dylib, or framework")
+                SectionHeading(
+                    title: "Injected libraries",
+                    detail: model.jobMode == .sign ? "Optional · DEB, dylib, or framework" : "Add a DEB, dylib, or framework")
                 Spacer()
                 Button("Add…", action: model.chooseInjections).controlSize(.regular)
             }
@@ -434,13 +517,16 @@ struct WorkspaceView: View {
                 if model.injections.isEmpty {
                     HStack(spacing: 10) {
                         Image(systemName: "puzzlepiece.extension").foregroundStyle(.tertiary)
-                        Text("Drop libraries or packages here. DEB install scripts are never executed.").font(.system(size: 12)).foregroundStyle(.secondary)
+                        Text("Drop libraries or packages here. DEB install scripts are never executed.").font(.system(size: 12))
+                            .foregroundStyle(.secondary)
                         Spacer(minLength: 0)
                     }.frame(minHeight: 22)
                 } else {
                     VStack(spacing: 13) {
                         ForEach(model.injections, id: \.self) { url in
-                            FileRow(url: url, symbol: url.pathExtension == "deb" ? "shippingbox" : "puzzlepiece.extension") { model.injections.removeAll { $0 == url } }
+                            FileRow(url: url, symbol: url.pathExtension == "deb" ? "shippingbox" : "puzzlepiece.extension") {
+                                model.injections.removeAll { $0 == url }
+                            }
                         }
                     }
                 }
@@ -455,39 +541,58 @@ struct WorkspaceView: View {
                     SectionHeading(title: job.status == .running ? "Export in progress" : "Last export")
                     Spacer()
                     StatusPill(status: job.status)
-                    Button("Details") { model.selectedJobID = job.id; model.section = .activity }.controlSize(.regular)
+                    Button("Details") {
+                        model.selectedJobID = job.id
+                        model.section = .activity
+                    }.controlSize(.regular)
                 }
                 if job.status == .running {
                     ProgressView(value: job.events.map(\.fraction).max() ?? 0).progressViewStyle(.linear)
-                    Text(job.events.last?.message ?? "Preparing the signing workspace…").font(.system(size: 12)).foregroundStyle(.secondary).textSelection(.enabled)
+                    Text(job.events.last?.message ?? "Preparing the signing workspace…").font(.system(size: 12)).foregroundStyle(.secondary)
+                        .textSelection(.enabled)
                 }
                 if let result = job.result {
                     HStack {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(result.output.lastPathComponent).font(.system(size: 13, weight: .medium)).textSelection(.enabled)
-                            Text("\(result.signedCodeCount) code objects verified · \(result.injectedLibraryCount) libraries injected").font(.system(size: 12)).foregroundStyle(.secondary)
+                            Text("\(result.signedCodeCount) code objects verified · \(result.injectedLibraryCount) libraries injected")
+                                .font(.system(size: 12)).foregroundStyle(.secondary)
                         }
                         Spacer()
-                        Button("Show in Finder") { model.reveal(job.output) }.disabled(!FileManager.default.fileExists(atPath: job.output.path))
+                        Button("Show in Finder") { model.reveal(job.output) }.disabled(
+                            !FileManager.default.fileExists(atPath: job.output.path))
                     }
-                    if !result.warnings.isEmpty { InlineNotice(message: "\(result.warnings.count) warning(s) recorded. Review export details before installing.") }
+                    if !result.warnings.isEmpty {
+                        InlineNotice(message: "\(result.warnings.count) warning(s) recorded. Review export details before installing.")
+                    }
                 }
                 if let result = job.injectionResult {
                     HStack {
                         VStack(alignment: .leading, spacing: 4) {
-                            Text(result.output.lastPathComponent).font(.system(size: 13, weight: .medium)).lineLimit(2).truncationMode(.middle).textSelection(.enabled)
+                            Text(result.output.lastPathComponent).font(.system(size: 13, weight: .medium)).lineLimit(2).truncationMode(
+                                .middle
+                            ).textSelection(.enabled)
                             Text("\(result.injectedLibraryCount) libraries injected · Unsigned")
                                 .font(.system(size: 12)).foregroundStyle(Palette.warning)
                         }
                         Spacer(minLength: 4)
-                        Button("Show in Finder") { model.reveal(job.output) }.disabled(!FileManager.default.fileExists(atPath: job.output.path))
+                        Button("Show in Finder") { model.reveal(job.output) }.disabled(
+                            !FileManager.default.fileExists(atPath: job.output.path))
                     }
                     Text("Sign this IPA before installation.").font(.system(size: 12)).foregroundStyle(.secondary)
                 }
-                if let failure = job.failure { InlineNotice(message: failure, color: job.status == .failed ? Palette.error : Palette.warning) }
-                if let recovery = job.recovery { Text(recovery).font(.system(size: 12)).foregroundStyle(.secondary).textSelection(.enabled) }
+                if let failure = job.failure {
+                    InlineNotice(message: failure, color: job.status == .failed ? Palette.error : Palette.warning)
+                }
+                if let recovery = job.recovery {
+                    Text(recovery).font(.system(size: 12)).foregroundStyle(.secondary).textSelection(.enabled)
+                }
                 if job.status == .failed || job.status == .cancelled {
-                    Text(job.jobMode == .injectOnly ? "Review the app and injected libraries, then export again." : "Adjust the signing inputs, re-enter the P12 password if needed, then export again.").font(.system(size: 12)).foregroundStyle(.secondary)
+                    Text(
+                        job.jobMode == .injectOnly
+                            ? "Review the app and injected libraries, then export again."
+                            : "Adjust the signing inputs, re-enter the P12 password if needed, then export again."
+                    ).font(.system(size: 12)).foregroundStyle(.secondary)
                 }
             }
         }
@@ -496,18 +601,32 @@ struct WorkspaceView: View {
     private var exportBar: some View {
         HStack(spacing: 13) {
             VStack(alignment: .leading, spacing: 4) {
-                Label(model.isRunning ? (model.isCancelling ? "Stopping safely…" : "\(model.currentJob?.events.last?.stage.title ?? "Preparing export")") : model.missingInputs,
-                      systemImage: model.isRunning ? "arrow.triangle.2.circlepath" : (model.canSign ? "checkmark.circle.fill" : "circle.dotted"))
-                    .font(.system(size: 13, weight: .medium)).lineLimit(2)
-                Text(model.isRunning ? "Keep LoadSide open until cleanup finishes." : model.jobMode == .sign ? "Choose the export destination next." : "Unsigned output · Sign before installation").font(.system(size: 11)).foregroundStyle(.secondary)
+                Label(
+                    model.isRunning
+                        ? (model.isCancelling ? "Stopping safely…" : "\(model.currentJob?.events.last?.stage.title ?? "Preparing export")")
+                        : model.missingInputs,
+                    systemImage: model.isRunning
+                        ? "arrow.triangle.2.circlepath" : (model.canSign ? "checkmark.circle.fill" : "circle.dotted")
+                )
+                .font(.system(size: 13, weight: .medium)).lineLimit(2)
+                Text(
+                    model.isRunning
+                        ? "Keep LoadSide open until cleanup finishes."
+                        : model.jobMode == .sign ? "Choose the export destination next." : "Unsigned output · Sign before installation"
+                ).font(.system(size: 11)).foregroundStyle(.secondary)
             }
             Spacer(minLength: 11)
             if model.isRunning {
-                Button(model.isCancelling ? "Cancelling…" : "Cancel", action: model.cancel).adaptiveGlassButton().disabled(model.isCancelling)
+                Button(model.isCancelling ? "Cancelling…" : "Cancel", action: model.cancel).adaptiveGlassButton().disabled(
+                    model.isCancelling)
             } else {
-                Button(action: model.beginSigning) { Label(model.jobMode == .sign ? "Sign & Export…" : "Inject & Export…", systemImage: model.jobMode == .sign ? "signature" : "puzzlepiece.extension") }
-                    .adaptiveGlassButton(prominent: true).controlSize(.large).disabled(!model.canSign)
-                    .help(model.jobMode == .sign ? "Sign and export (⌘R)" : "Export an unsigned injected IPA (⌘R)")
+                Button(action: model.beginSigning) {
+                    Label(
+                        model.jobMode == .sign ? "Sign & Export…" : "Inject & Export…",
+                        systemImage: model.jobMode == .sign ? "signature" : "puzzlepiece.extension")
+                }
+                .adaptiveGlassButton(prominent: true).controlSize(.large).disabled(!model.canSign)
+                .help(model.jobMode == .sign ? "Sign and export (⌘R)" : "Export an unsigned injected IPA (⌘R)")
             }
         }.padding(.horizontal, 18).padding(.vertical, 13).floatingControlSurface(cornerRadius: 18)
     }

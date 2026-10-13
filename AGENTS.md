@@ -27,6 +27,8 @@ LoadSide is a native macOS application and CLI for locally signing decrypted iOS
 
 Target macOS 14+, Swift 6, and Foundation/Security/libarchive. Use `xcodebuildmcp` for interactive build and test orchestration when available; repository CI/release scripts use the standard Swift toolchain directly. Check workflow `--help` before using the CLI. Run relevant unit tests and a full build after interface changes. Test hostile archives, malformed binaries, policy boundaries, cancellation, and failure cleanup, not just happy paths. Keep `docs/STATUS.md`, `CHANGELOG.md`, and support limitations accurate.
 
+Use `scripts/format.sh` and `.swift-format` for owned Swift sources; `scripts/check.sh` enforces formatting. Preserve vendored CArchive header formatting. Keep shared test fixtures in `Tests/LoadSideCoreTests/Support`, and retain persisted Codable keys, public APIs, and diagnostic codes during refactors. See `CONTRIBUTING.md` for the source map and validation workflow.
+
 Use Context7 MCP for current library/framework/SDK/API/CLI documentation: resolve the library ID first, then query a focused concept. Prefer the alternate Context7 connector if one connection fails authentication. Use official primary documentation when no relevant Context7 documentation is available. General refactoring and business-logic changes do not need a documentation lookup.
 
 ## Git and release

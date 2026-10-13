@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Standardize owned Swift source formatting with the toolchain's formatter, enforce it in the repository checks, and add editor defaults. Expand the contributor source map/workflows and correct security documentation for optional local/Cloudflare sharing.
+
 - Extract desktop library state and history persistence from views/workspace coordination; remove unused workspace members and prevent credential edits during saved-profile operations. Add history compatibility tests.
 - Share CLI argument parsing, progress/JSON reporting, and cancellation handling. Bound password-file reads, reject links and special files, and preserve the full password before a final CRLF line ending. Add argument and credential-input tests.
 

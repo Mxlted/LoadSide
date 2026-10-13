@@ -4,12 +4,15 @@ import Foundation
 public struct InjectionEngine: Sendable {
     public init() {}
 
-    public func run(_ request: InjectionRequest, onEvent: @escaping @Sendable (SigningEvent) -> Void) async throws -> InjectionExportResult {
+    public func run(_ request: InjectionRequest, onEvent: @escaping @Sendable (SigningEvent) -> Void) async throws -> InjectionExportResult
+    {
         try await run(request, workspaceRoot: FileManager.default.temporaryDirectory, onEvent: onEvent)
     }
 
     // A private parent directory can be supplied by tests to verify cleanup deterministically.
-    func run(_ request: InjectionRequest, workspaceRoot: URL, onEvent: @escaping @Sendable (SigningEvent) -> Void) async throws -> InjectionExportResult {
+    func run(_ request: InjectionRequest, workspaceRoot: URL, onEvent: @escaping @Sendable (SigningEvent) -> Void) async throws
+        -> InjectionExportResult
+    {
         func emit(_ stage: SigningStage, _ fraction: Double, _ message: String, _ level: SigningEvent.Level = .info) {
             onEvent(SigningEvent(stage: stage, fraction: fraction, message: message, level: level))
         }
@@ -37,11 +40,14 @@ public struct InjectionEngine: Sendable {
             try BundleInventory.updateLocalizedNames(in: app, name: name)
         }
         emit(.injecting, 0.30, "Extracting packages and resolving injected library dependencies.")
-        let injection = try Injection.inject(inputs: request.injections, into: app, executable: main.executable, workspace: workspace, filterBundleIdentifier: main.identifier)
+        let injection = try Injection.inject(
+            inputs: request.injections, into: app, executable: main.executable, workspace: workspace,
+            filterBundleIdentifier: main.identifier)
         warnings += injection.warnings
         emit(.strippingSignatures, 0.58, "Removing invalidated code signatures and embedded provisioning profiles.")
         try await Self.removeSignatures(in: app)
-        let unsignedWarning = "UNSIGNED: this archive requires signing before installation on a standard iOS device. Existing signatures, embedded profiles, and signature entitlements were removed; signing must restore the app's required authorized capabilities."
+        let unsignedWarning =
+            "UNSIGNED: this archive requires signing before installation on a standard iOS device. Existing signatures, embedded profiles, and signature entitlements were removed; signing must restore the app's required authorized capabilities."
         warnings.append(unsignedWarning)
         for warning in warnings { emit(.validating, 0.72, warning, .warning) }
         emit(.validating, 0.75, "Rechecking prepared code and confirming that every Mach-O is unsigned.")
@@ -57,8 +63,10 @@ public struct InjectionEngine: Sendable {
         let info = try BundleInventory.readInfo(app.appendingPathComponent("Info.plist"))
         let hash = try IPAExport.write(from: extracted, to: request.output)
         emit(.completed, 1, "Unsigned IPA exported. Signing is still required before device installation.")
-        return InjectionExportResult(output: request.output, bundleIdentifier: main.identifier,
-            displayName: info["CFBundleDisplayName"] as? String ?? info["CFBundleName"] as? String ?? app.deletingPathExtension().lastPathComponent,
+        return InjectionExportResult(
+            output: request.output, bundleIdentifier: main.identifier,
+            displayName: info["CFBundleDisplayName"] as? String ?? info["CFBundleName"] as? String
+                ?? app.deletingPathExtension().lastPathComponent,
             injectedLibraryCount: injection.injectedLibraries.count, warnings: warnings, sha256: hash)
     }
 
@@ -78,17 +86,21 @@ public struct InjectionEngine: Sendable {
             guard try MachO.inspect(binary).hasCodeSignature else { continue }
             let removed = try await runner.run("/usr/bin/codesign", ["--remove-signature", binary.path], check: false)
             guard removed.status == 0 else {
-                throw LoadSideError("injection.removeSignature", "Could not remove the signature from \(binary.lastPathComponent): \(removed.diagnostic)")
+                throw LoadSideError(
+                    "injection.removeSignature", "Could not remove the signature from \(binary.lastPathComponent): \(removed.diagnostic)")
             }
         }
-        let directories = [app] + (try BundleInventory.contents(app).filter {
-            try $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory == true
-        })
+        let directories =
+            [app]
+            + (try BundleInventory.contents(app).filter {
+                try $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory == true
+            })
         for directory in directories {
             try Task.checkCancellation()
             let isBundle = ["app", "appex", "framework", "bundle", "xpc"].contains(directory.pathExtension.lowercased())
             let hasSeal = (try? directory.appendingPathComponent("_CodeSignature").resourceValues(forKeys: [.isSymbolicLinkKey])) != nil
-            let names = ["_CodeSignature"] + (isBundle || hasSeal ? ["CodeResources", "embedded.mobileprovision", "embedded.provisionprofile"] : [])
+            let names =
+                ["_CodeSignature"] + (isBundle || hasSeal ? ["CodeResources", "embedded.mobileprovision", "embedded.provisionprofile"] : [])
             for name in names {
                 let artifact = directory.appendingPathComponent(name)
                 // resourceValues detects symlinks too, including dangling ones after a seal is removed.

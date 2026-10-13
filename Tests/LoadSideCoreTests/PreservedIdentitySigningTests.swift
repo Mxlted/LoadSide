@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import LoadSideCore
 
 final class PreservedIdentitySigningTests: XCTestCase {
@@ -14,8 +15,11 @@ final class PreservedIdentitySigningTests: XCTestCase {
         for (url, identifier, type) in [(sourceApp, "com.original.app", "APPL"), (sourceExtension, "com.original.app.share", "XPC!")] {
             try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
             try FileManager.default.copyItem(at: URL(fileURLWithPath: "/bin/echo"), to: url.appendingPathComponent("Code"))
-            try BundleInventory.writeInfo(["CFBundleIdentifier": identifier, "CFBundleExecutable": "Code", "CFBundlePackageType": type,
-                                           "CFBundleVersion": "1", "CFBundleShortVersionString": "1.0"], to: url)
+            try BundleInventory.writeInfo(
+                [
+                    "CFBundleIdentifier": identifier, "CFBundleExecutable": "Code", "CFBundlePackageType": type,
+                    "CFBundleVersion": "1", "CFBundleShortVersionString": "1.0"
+                ], to: url)
             originalPlists[identifier] = try Data(contentsOf: url.appendingPathComponent("Info.plist"))
         }
         let sourceIPA = directory.appendingPathComponent("source.ipa")
@@ -27,23 +31,31 @@ final class PreservedIdentitySigningTests: XCTestCase {
         let stagedApp = try BundleInventory.mainApp(in: stagedTree)
 
         let profile = try testProfile(id: "NEWTEAM.com.target.app")
-        let plan = try SigningPreflight.resolveForSigning(original: "com.original.app", profiles: [profile], certificate: Data([1, 2, 3]),
+        let plan = try SigningPreflight.resolveForSigning(
+            original: "com.original.app", profiles: [profile], certificate: Data([1, 2, 3]),
             policy: .preserve, override: nil, nestedOriginalIdentifiers: ["com.original.app.share"])
         XCTAssertFalse(plan.changesIdentifier)
         XCTAssertTrue(plan.usesProfileIdentity)
-        let mainProfile = try ProvisioningProfile.select(from: [profile], bundleIdentifier: plan.profileBundleIdentifier, certificate: Data([1, 2, 3]))
+        let mainProfile = try ProvisioningProfile.select(
+            from: [profile], bundleIdentifier: plan.profileBundleIdentifier, certificate: Data([1, 2, 3]))
         var entitlementFiles: [URL: URL] = [:]
         for (index, bundle) in try BundleInventory.discover(in: stagedApp).enumerated() {
             let selection: BundleProfileSelection
             if bundle.url == stagedApp {
                 selection = BundleProfileSelection(profile: mainProfile, usesProfileIdentity: plan.usesProfileIdentity)
             } else {
-                selection = try ProvisioningProfile.selectForBundle(from: [profile], bundleIdentifier: bundle.identifier, certificate: Data([1, 2, 3]),
-                    mainProfile: mainProfile, mainBundleIdentifier: plan.effectiveIdentifier, isExtension: bundle.url.pathExtension == "appex", policy: .reuseMain)
+                selection = try ProvisioningProfile.selectForBundle(
+                    from: [profile], bundleIdentifier: bundle.identifier, certificate: Data([1, 2, 3]),
+                    mainProfile: mainProfile, mainBundleIdentifier: plan.effectiveIdentifier,
+                    isExtension: bundle.url.pathExtension == "appex", policy: .reuseMain)
             }
-            let claims = try EntitlementResolver.resolve(requested: ["application-identifier": "OLD.\(bundle.identifier)",
-                                                                    "keychain-access-groups": ["OLD.\(bundle.identifier)"]],
-                profile: selection.profile, bundleIdentifier: bundle.identifier, policy: .strict, useProfileIdentity: selection.usesProfileIdentity)
+            let claims = try EntitlementResolver.resolve(
+                requested: [
+                    "application-identifier": "OLD.\(bundle.identifier)",
+                    "keychain-access-groups": ["OLD.\(bundle.identifier)"]
+                ],
+                profile: selection.profile, bundleIdentifier: bundle.identifier, policy: .strict,
+                useProfileIdentity: selection.usesProfileIdentity)
             let claimsURL = directory.appendingPathComponent("claims-\(index).plist")
             try PropertyListSerialization.data(fromPropertyList: claims.values, format: .xml, options: 0).write(to: claimsURL)
             entitlementFiles[bundle.url] = claimsURL
@@ -53,7 +65,9 @@ final class PreservedIdentitySigningTests: XCTestCase {
         let runner = ProcessRunner()
         for target in try BundleInventory.signingTargets(in: stagedApp) {
             let claims = try XCTUnwrap(entitlementFiles[target])
-            _ = try await runner.run("/usr/bin/codesign", ["--force", "--sign", "-", "--timestamp=none", "--generate-entitlement-der", "--entitlements", claims.path, target.path])
+            _ = try await runner.run(
+                "/usr/bin/codesign",
+                ["--force", "--sign", "-", "--timestamp=none", "--generate-entitlement-der", "--entitlements", claims.path, target.path])
             _ = try await runner.run("/usr/bin/codesign", ["--verify", "--strict", target.path])
         }
         let outputIPA = directory.appendingPathComponent("signed.ipa")
@@ -69,7 +83,8 @@ final class PreservedIdentitySigningTests: XCTestCase {
             let claims = try XCTUnwrap(try PropertyListSerialization.propertyList(from: result.stdout, format: nil) as? [String: Any])
             XCTAssertEqual(claims["application-identifier"] as? String, "NEWTEAM.com.target.app")
             XCTAssertEqual(claims["keychain-access-groups"] as? [String], ["NEWTEAM.com.target.app"])
-            XCTAssertEqual(try Data(contentsOf: bundle.url.appendingPathComponent("Info.plist")), try XCTUnwrap(originalPlists[bundle.identifier]))
+            XCTAssertEqual(
+                try Data(contentsOf: bundle.url.appendingPathComponent("Info.plist")), try XCTUnwrap(originalPlists[bundle.identifier]))
             XCTAssertEqual(try Data(contentsOf: bundle.url.appendingPathComponent("embedded.mobileprovision")), profile.data)
         }
         XCTAssertEqual(try Data(contentsOf: sourceIPA), originalArchive)

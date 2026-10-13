@@ -1,6 +1,8 @@
 # Security
 
-LoadSide handles private signing identities and untrusted archives. Keep signing material on a trusted Mac. The app makes no service requests and does not upload IPAs, P12s, profiles, or passwords. Apple's local trust evaluation may use cached system trust information; LoadSide disables profile trust network fetching and does not promise current revocation checks.
+LoadSide handles private signing identities and untrusted archives. Keep signing material on a trusted Mac. Signing and injection run locally; P12s, profiles, and passwords are never sent to a service. Apple's local trust evaluation may use cached system trust information; LoadSide disables profile trust network fetching and does not promise current revocation checks.
+
+Sharing is explicit and separate from signing. **Local downloads only** serves managed IPA copies over unencrypted local HTTP. **Automatic HTTPS** downloads a pinned helper from GitHub and forwards the shared catalog, manifests, and IPA downloads through Cloudflare. **My HTTPS server** uses the configured reverse proxy. Anyone holding the current private sharing URL can download the library; stop sharing to invalidate it. See [sharing limitations](docs/COMPATIBILITY.md#local-sharing-and-installation).
 
 ## Boundaries
 

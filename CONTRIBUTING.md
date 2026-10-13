@@ -1,9 +1,55 @@
 # Contributing
 
-Read `AGENTS.md` and `docs/ARCHITECTURE.md` before changing the signing pipeline. Open `Package.swift` in Xcode or use the Swift CLI. macOS 14+ and Swift 6+ are required.
+Read [engineering invariants](AGENTS.md) and [architecture](docs/ARCHITECTURE.md) before changing the signing pipeline. macOS 14+ and Xcode with Swift 6+ are required. Open `Package.swift` in Xcode; there is no generated Xcode project to maintain and no third-party Swift package to install.
 
-Keep changes focused and add meaningful tests for parsing, policy, cleanup, or export behavior. Unit tests must not require real credentials, network access, or the login keychain. Native-tool integration tests may use generated fixtures in private temporary directories, but must not weaken production trust checks.
+## Development loop
 
-Run `scripts/check.sh` before submitting. For archive and binary changes, include malformed-input and traversal coverage. For entitlement changes, include explicit/wildcard profiles, type mismatches, team/app-prefix differences, extension cases, and strict/compatible outcomes. For process changes, cover cancellation, timeout, bounded output, and cleanup.
+From the repository root:
+
+```sh
+swift build
+swift test --filter EntitlementTests
+scripts/format.sh --check
+scripts/check.sh
+scripts/package.sh --local
+open dist/LoadSide.app
+```
+
+Use `swift test --filter <TestClass>` for the area being changed, then run `scripts/check.sh` before submitting. The full check runs formatting, shell syntax, packaging guards, all test targets, an optimized build, SDK metadata verification, CLI smoke checks, and tracked-file hygiene. `--skip-build` skips **both tests and compilation** and requires existing release binaries; it is only for repeating smoke checks after a verified build.
+
+Interactive agent workflows use `xcodebuildmcp swift-package build` and `test` when available; inspect their `--help` first and pass this checkout as `--package-path`. Repository scripts use Swift directly so CI does not need XcodeBuildMCP. Do not run competing builds against the same build directory.
+
+The release scripts deliberately forward the selected macOS SDK to both compilation and linking. Use those scripts to create distributable bundles; a plain development build does not replace their SDK and signature checks. `scripts/package.sh --local` updates `dist/LoadSide.app` and `dist/loadside` after verification. `scripts/clean.sh --dry-run` previews generated-file cleanup and preserves `dist` by default. Never put user archives or signing material in build directories.
+
+## Finding the right code
+
+| Change | Start here |
+| --- | --- |
+| Signing stages and progress | `SigningEngine`, `SigningRequest`, `SigningEvent` |
+| Bundle discovery and metadata | `BundleInventory`, `SigningPreflight` |
+| Archive safety and final output commit | `Archive`, `IPAExport` |
+| Injection and unsigned exports | `Injection`, `InjectionEngine`, `MachO` |
+| Profile authorization and identity | `ProvisioningProfile`, `EntitlementResolver`, `ExtensionSigning` |
+| Saved credentials | `SavedSigningProfileStore`, `SigningIdentity` |
+| Shared library and browser downloads | `LocalAppLibrary`, `LocalAppServer`, `LocalHTTP` |
+| HTTPS helper lifecycle | `CloudflaredInstaller`, `LocalAppTunnel` |
+| Desktop state and persistence | `WorkspaceModel`, `LocalLibraryModel`, `JobRecord`, `JobHistoryStore` |
+| CLI parsing and execution | `LoadSideCLI` and its adjacent support files |
+
+Keep policy and filesystem safety in `LoadSideCore`; clients translate input and display real engine events. Keep a coordinating model together when its state changes together. Extract independent responsibilities, not one file per method.
+
+## Style and review
+
+`scripts/format.sh` applies the [Swift toolchain formatter](https://github.com/swiftlang/swift-format) using `.swift-format`; `--check` fails on differences. Four-space indentation, a 140-column wrapping target, ordered imports, and one statement per line make the binary and policy code easier to audit. Long literal diagnostics and HTML are left intact. `.editorconfig` supplies editor defaults. Do not reformat the vendored CArchive headers. Use the same selected Swift toolchain for formatting and checks; formatter output can change with toolchain upgrades.
+
+Prefer descriptive domain names, early validation, and small helpers with explicit inputs. Comments should explain security assumptions, lifecycle ownership, or compatibility decisions. Preserve public APIs, persisted Codable keys, diagnostic codes, and CLI output contracts unless the change intentionally revises them. Keep formatting-only changes separate from behavioral changes when practical.
+
+## Tests and safety
+
+Keep changes focused and add meaningful tests for parsing, policy, cleanup, or export behavior. Unit tests must not require real credentials, internet access, or the login keychain. Local server tests use loopback sockets and synthetic IPA bytes. Native-tool integration tests use generated fixtures in temporary directories, but must not weaken production trust checks. One native password-storage integration test creates and removes a uniquely namespaced generic-password item in the default macOS Keychain; it may require an unlocked Keychain. Signing identity tests use disposable keychains. Synthetic success never establishes iOS installation support.
+
+`LoadSideCoreTests/Support` contains shared binary, archive, profile, and library fixtures. Put reusable fixture builders there rather than hiding them in an unrelated test case. Keep scenario-specific helpers next to their tests. `LoadSideAppTests` covers history compatibility and persistence without opening windows; `LoadSideCLITests` covers argument and credential-input boundaries without signing a user archive.
+
+For archive and binary changes, include malformed-input and traversal coverage. For entitlement changes, include explicit/wildcard profiles, type mismatches, team/app-prefix differences, extension cases, and strict/compatible outcomes. For process changes, cover cancellation, timeout, bounded output, and cleanup. Test the failure boundary, including unchanged source bytes, no partial final export, and temporary-work cleanup.
 
 Pull requests should explain the behavior change, evidence from tests, and remaining device qualification. Never claim installation support based solely on a synthetic signature. Update the changelog and compatibility documentation when the supported surface changes.

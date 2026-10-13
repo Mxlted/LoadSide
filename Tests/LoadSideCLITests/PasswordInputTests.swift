@@ -2,6 +2,7 @@ import Darwin
 import Foundation
 import LoadSideCore
 import XCTest
+
 @testable import LoadSideCLI
 
 final class PasswordInputTests: XCTestCase {

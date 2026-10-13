@@ -1,6 +1,6 @@
 import AppKit
-import SwiftUI
 import LoadSideCore
+import SwiftUI
 
 /// Shared dimensions keep the roomier app layout consistent across sections.
 enum AppMetrics {
@@ -33,8 +33,9 @@ struct Panel<Content: View>: View {
             .padding(padding)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Palette.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .strokeBorder(contrast == .increased ? Color.primary.opacity(0.45) : Palette.separator))
+            .overlay(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .strokeBorder(contrast == .increased ? Color.primary.opacity(0.45) : Palette.separator))
     }
 }
 
@@ -88,7 +89,8 @@ struct FileRow: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(url.lastPathComponent).font(.system(size: 13, weight: .medium)).lineLimit(1).truncationMode(.middle)
                 if showDirectory {
-                    Text(url.deletingLastPathComponent().path).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                    Text(url.deletingLastPathComponent().path).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
+                        .truncationMode(.middle)
                 }
             }
             Spacer(minLength: 2)
@@ -105,7 +107,7 @@ struct RemoveButton: View {
             Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
                 .frame(width: AppMetrics.iconButtonSize, height: AppMetrics.iconButtonSize).contentShape(Rectangle())
         }
-            .buttonStyle(.borderless).help(label).accessibilityLabel(label)
+        .buttonStyle(.borderless).help(label).accessibilityLabel(label)
     }
 }
 
@@ -185,13 +187,13 @@ private struct FloatingControlSurface: ViewModifier {
                 .overlay(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous).strokeBorder(Palette.separator))
         } else {
             #if compiler(>=6.2)
-            if #available(macOS 26, *) {
-                content.glassEffect(.regular, in: .rect(cornerRadius: cornerRadius))
-            } else {
-                materialSurface(content)
-            }
+                if #available(macOS 26, *) {
+                    content.glassEffect(.regular, in: .rect(cornerRadius: cornerRadius))
+                } else {
+                    materialSurface(content)
+                }
             #else
-            materialSurface(content)
+                materialSurface(content)
             #endif
         }
     }
@@ -209,20 +211,18 @@ private struct AdaptiveGlassButton: ViewModifier {
 
     @ViewBuilder func body(content: Content) -> some View {
         #if compiler(>=6.2)
-        if #available(macOS 26, *), !reduceTransparency {
-            if prominent { content.buttonStyle(.glassProminent) }
-            else { content.buttonStyle(.glass) }
-        } else {
-            fallback(content)
-        }
+            if #available(macOS 26, *), !reduceTransparency {
+                if prominent { content.buttonStyle(.glassProminent) } else { content.buttonStyle(.glass) }
+            } else {
+                fallback(content)
+            }
         #else
-        fallback(content)
+            fallback(content)
         #endif
     }
 
     @ViewBuilder private func fallback(_ content: Content) -> some View {
-        if prominent { content.buttonStyle(.borderedProminent) }
-        else { content.buttonStyle(.bordered) }
+        if prominent { content.buttonStyle(.borderedProminent) } else { content.buttonStyle(.bordered) }
     }
 }
 

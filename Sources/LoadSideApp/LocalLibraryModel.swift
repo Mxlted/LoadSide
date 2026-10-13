@@ -60,8 +60,10 @@ final class LocalLibraryModel: ObservableObject {
         var failures: [String] = []
         var hashes = Set(apps.map(\.sha256))
         for result in results where !hashes.contains(result.sha256) {
-            do { _ = try await store.add(result); hashes.insert(result.sha256) }
-            catch { failures.append("\(result.displayName): \(error.localizedDescription)") }
+            do {
+                _ = try await store.add(result)
+                hashes.insert(result.sha256)
+            } catch { failures.append("\(result.displayName): \(error.localizedDescription)") }
         }
         await refresh()
         if !failures.isEmpty { notice = failures.joined(separator: "\n") }
@@ -71,8 +73,10 @@ final class LocalLibraryModel: ObservableObject {
         guard !isUpdating else { return }
         updateCount += 1
         defer { updateCount -= 1 }
-        do { try await store.remove(app.id); await refresh() }
-        catch { notice = "The library copy could not be removed: \(error.localizedDescription)" }
+        do {
+            try await store.remove(app.id)
+            await refresh()
+        } catch { notice = "The library copy could not be removed: \(error.localizedDescription)" }
     }
 
     func start() {
@@ -84,9 +88,11 @@ final class LocalLibraryModel: ObservableObject {
         let address = sharingMode == .customHTTPS ? httpsBaseURL.trimmingCharacters(in: .whitespacesAndNewlines) : ""
         let baseURL = address.isEmpty ? nil : URL(string: address)
         guard sharingMode != .customHTTPS || (baseURL?.scheme == "https" && baseURL?.host?.isEmpty == false) else {
-            notice = "Enter the HTTPS address of your server."; return
+            notice = "Enter the HTTPS address of your server."
+            return
         }
-        let id = UUID(), mode = sharingMode
+        let id = UUID()
+        let mode = sharingMode
         generation = id
         isChangingServer = true
         notice = nil
@@ -99,14 +105,17 @@ final class LocalLibraryModel: ObservableObject {
         }
         let server = LocalAppServer(library: store, onFailure: onFailure)
         let tunnel = LocalAppTunnel(onFailure: onFailure)
-        self.server = server; self.tunnel = tunnel
+        self.server = server
+        self.tunnel = tunnel
         startupTask = Task {
             do {
                 let executable: URL?
                 if mode == .automaticHTTPS {
                     serverStatus = "Preparing HTTPS helper…"
                     executable = try await installer.executable()
-                } else { executable = nil }
+                } else {
+                    executable = nil
+                }
                 try Task.checkCancellation()
                 serverStatus = "Starting local server…"
                 var ready = try await server.start(port: selectedPort, httpsBaseURL: baseURL)
@@ -147,7 +156,9 @@ final class LocalLibraryModel: ObservableObject {
         await startup?.value
         await tunnel?.stop()
         await server?.stop()
-        startupTask = nil; tunnel = nil; server = nil
+        startupTask = nil
+        tunnel = nil
+        server = nil
         session = nil
         serverStatus = ""
         isChangingServer = false

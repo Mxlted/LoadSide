@@ -13,10 +13,19 @@ public struct SigningRequest: Sendable {
     public var removeExtensions: Bool
     public var entitlementPolicy: EntitlementPolicy
     public var extensionProfilePolicy: ExtensionProfilePolicy
-    public init(ipa: URL, certificate: URL, password: String, profiles: [URL], injections: [URL] = [], output: URL, bundleIdentifier: String? = nil, displayName: String? = nil, removeExtensions: Bool = false, entitlementPolicy: EntitlementPolicy = .strict, bundleIdentifierPolicy: BundleIdentifierPolicy = .preserve, extensionProfilePolicy: ExtensionProfilePolicy? = nil) {
-        self.ipa = ipa; self.certificate = certificate; self.password = password
-        self.profiles = profiles; self.injections = injections; self.output = output
-        self.bundleIdentifier = bundleIdentifier; self.displayName = displayName
+    public init(
+        ipa: URL, certificate: URL, password: String, profiles: [URL], injections: [URL] = [], output: URL, bundleIdentifier: String? = nil,
+        displayName: String? = nil, removeExtensions: Bool = false, entitlementPolicy: EntitlementPolicy = .strict,
+        bundleIdentifierPolicy: BundleIdentifierPolicy = .preserve, extensionProfilePolicy: ExtensionProfilePolicy? = nil
+    ) {
+        self.ipa = ipa
+        self.certificate = certificate
+        self.password = password
+        self.profiles = profiles
+        self.injections = injections
+        self.output = output
+        self.bundleIdentifier = bundleIdentifier
+        self.displayName = displayName
         self.bundleIdentifierPolicy = bundleIdentifierPolicy
         self.removeExtensions = removeExtensions
         self.entitlementPolicy = entitlementPolicy
@@ -49,7 +58,8 @@ public enum EntitlementPolicy: String, Codable, Sendable, CaseIterable {
 }
 
 public enum SigningStage: String, Codable, Sendable, CaseIterable {
-    case preparing, inspecting, credentials, entitlements, injecting, strippingSignatures, validating, signing, verifying, exporting, completed
+    case preparing, inspecting, credentials, entitlements, injecting, strippingSignatures, validating, signing, verifying, exporting,
+        completed
     public var title: String {
         switch self {
         case .preparing: "Prepare workspace"
@@ -76,8 +86,12 @@ public struct SigningEvent: Codable, Sendable, Identifiable {
     public let level: Level
     public enum Level: String, Codable, Sendable { case info, warning, error }
     public init(stage: SigningStage, fraction: Double, message: String, level: Level = .info) {
-        id = UUID(); date = Date(); self.stage = stage
-        self.fraction = min(1, max(0, fraction)); self.message = message; self.level = level
+        id = UUID()
+        date = Date()
+        self.stage = stage
+        self.fraction = min(1, max(0, fraction))
+        self.message = message
+        self.level = level
     }
 
     /// Redaction changes only the diagnostic, preserving the engine event's identity and time.
@@ -108,11 +122,20 @@ public struct SigningResult: Codable, Sendable {
     public let sha256: String
     public let completedAt: Date
     public let bundleVersion: String?
-    public init(output: URL, bundleIdentifier: String, displayName: String, certificateName: String, teamIdentifier: String, signedCodeCount: Int, injectedLibraryCount: Int, warnings: [String], sha256: String, completedAt: Date = Date(), bundleVersion: String? = nil) {
-        self.output = output; self.bundleIdentifier = bundleIdentifier; self.displayName = displayName
-        self.certificateName = certificateName; self.teamIdentifier = teamIdentifier
-        self.signedCodeCount = signedCodeCount; self.injectedLibraryCount = injectedLibraryCount
-        self.warnings = warnings; self.sha256 = sha256; self.completedAt = completedAt
+    public init(
+        output: URL, bundleIdentifier: String, displayName: String, certificateName: String, teamIdentifier: String, signedCodeCount: Int,
+        injectedLibraryCount: Int, warnings: [String], sha256: String, completedAt: Date = Date(), bundleVersion: String? = nil
+    ) {
+        self.output = output
+        self.bundleIdentifier = bundleIdentifier
+        self.displayName = displayName
+        self.certificateName = certificateName
+        self.teamIdentifier = teamIdentifier
+        self.signedCodeCount = signedCodeCount
+        self.injectedLibraryCount = injectedLibraryCount
+        self.warnings = warnings
+        self.sha256 = sha256
+        self.completedAt = completedAt
         self.bundleVersion = bundleVersion
     }
 }
@@ -125,8 +148,11 @@ public struct InjectionRequest: Sendable {
     public var displayName: String?
     public var removeExtensions: Bool
     public init(ipa: URL, injections: [URL], output: URL, displayName: String? = nil, removeExtensions: Bool = false) {
-        self.ipa = ipa; self.injections = injections; self.output = output
-        self.displayName = displayName; self.removeExtensions = removeExtensions
+        self.ipa = ipa
+        self.injections = injections
+        self.output = output
+        self.displayName = displayName
+        self.removeExtensions = removeExtensions
     }
 }
 
@@ -141,10 +167,17 @@ public struct InjectionExportResult: Codable, Sendable {
     public let completedAt: Date
     public var requiresSigning: Bool { true }
 
-    public init(output: URL, bundleIdentifier: String, displayName: String, injectedLibraryCount: Int, warnings: [String], sha256: String, completedAt: Date = Date()) {
-        self.output = output; self.bundleIdentifier = bundleIdentifier; self.displayName = displayName
-        self.injectedLibraryCount = injectedLibraryCount; self.warnings = warnings
-        self.sha256 = sha256; self.completedAt = completedAt
+    public init(
+        output: URL, bundleIdentifier: String, displayName: String, injectedLibraryCount: Int, warnings: [String], sha256: String,
+        completedAt: Date = Date()
+    ) {
+        self.output = output
+        self.bundleIdentifier = bundleIdentifier
+        self.displayName = displayName
+        self.injectedLibraryCount = injectedLibraryCount
+        self.warnings = warnings
+        self.sha256 = sha256
+        self.completedAt = completedAt
     }
 
     enum CodingKeys: String, CodingKey {
@@ -180,7 +213,9 @@ public struct LoadSideError: LocalizedError, Sendable {
     public let message: String
     public let recovery: String
     public init(_ code: String, _ message: String, recovery: String = "Review the diagnostics and try again.") {
-        self.code = code; self.message = message; self.recovery = recovery
+        self.code = code
+        self.message = message
+        self.recovery = recovery
     }
     public var errorDescription: String? { message }
     public var recoverySuggestion: String? { recovery }

@@ -1,5 +1,6 @@
 import LoadSideCore
 import XCTest
+
 @testable import LoadSideCLI
 
 final class CommandOptionsTests: XCTestCase {

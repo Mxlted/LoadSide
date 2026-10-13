@@ -7,11 +7,15 @@ enum PasswordInput {
 
     static func read(_ options: CommandOptions) throws -> String {
         if options.flags.contains("--password-stdin"), options.values["--password-file"] != nil {
-            throw LoadSideError("arguments.password", "Choose one password input method.", recovery: "Use either --password-stdin or --password-file, or omit both for a hidden terminal prompt.")
+            throw LoadSideError(
+                "arguments.password", "Choose one password input method.",
+                recovery: "Use either --password-stdin or --password-file, or omit both for a hidden terminal prompt.")
         }
         if options.flags.contains("--password-stdin") {
             guard let value = readLine(strippingNewline: true) else {
-                throw LoadSideError("credentials.password", "No password was supplied on standard input.", recovery: "Supply one line; an empty line is valid for an unprotected P12.")
+                throw LoadSideError(
+                    "credentials.password", "No password was supplied on standard input.",
+                    recovery: "Supply one line; an empty line is valid for an unprotected P12.")
             }
             return value
         }
@@ -19,7 +23,11 @@ enum PasswordInput {
             return try readFile(at: URL(fileURLWithPath: path))
         }
         guard isatty(STDIN_FILENO) == 1, let pointer = getpass("P12 password (hidden): ") else {
-            throw LoadSideError("credentials.password", "An interactive terminal is required to enter the P12 password.", recovery: "Use --password-stdin or --password-file for automation. Password command-line arguments are intentionally unsupported.")
+            throw LoadSideError(
+                "credentials.password", "An interactive terminal is required to enter the P12 password.",
+                recovery:
+                    "Use --password-stdin or --password-file for automation. Password command-line arguments are intentionally unsupported."
+            )
         }
         defer { memset(pointer, 0, strlen(pointer)) }
         return String(cString: pointer)
@@ -30,7 +38,9 @@ enum PasswordInput {
         // we read. Nonblocking open prevents a named pipe from hanging the CLI.
         let descriptor = Darwin.open(url.path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
         guard descriptor >= 0 else {
-            throw LoadSideError("credentials.password", "The password file could not be opened.", recovery: "Choose a readable, regular file with owner-only permissions; symbolic links are not supported.")
+            throw LoadSideError(
+                "credentials.password", "The password file could not be opened.",
+                recovery: "Choose a readable, regular file with owner-only permissions; symbolic links are not supported.")
         }
         defer { Darwin.close(descriptor) }
         var info = stat()
@@ -38,7 +48,9 @@ enum PasswordInput {
             throw LoadSideError("credentials.password", "The password file must be a regular file.")
         }
         guard info.st_mode & 0o077 == 0 else {
-            throw LoadSideError("credentials.permissions", "The password file is accessible to other users.", recovery: "Set its permissions to 600, or use the hidden terminal prompt.")
+            throw LoadSideError(
+                "credentials.permissions", "The password file is accessible to other users.",
+                recovery: "Set its permissions to 600, or use the hidden terminal prompt.")
         }
         guard info.st_size >= 0, info.st_size <= maximumFileBytes else { throw invalidContents() }
 

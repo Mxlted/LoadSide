@@ -19,7 +19,11 @@ struct LocalLibraryView: View {
             HStack(alignment: .top) {
                 PageHeading(title: "Local Library", detail: "Your signed apps, ready to share from this Mac.")
                 Spacer()
-                Button { library.revealLibrary() } label: { Label("Show Folder", systemImage: "folder") }
+                Button {
+                    library.revealLibrary()
+                } label: {
+                    Label("Show Folder", systemImage: "folder")
+                }
             }
             HStack(alignment: .top, spacing: 20) {
                 catalog.frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -53,8 +57,11 @@ struct LocalLibraryView: View {
                 }.menuStyle(.borderlessButton).fixedSize().accessibilityLabel("Library actions")
             }
             if library.apps.isEmpty {
-                EmptyState(symbol: "square.stack.3d.up", title: "Your next export appears here",
-                           description: "Successfully signed exports are added automatically. You can also add completed exports from Activity using the menu above.")
+                EmptyState(
+                    symbol: "square.stack.3d.up", title: "Your next export appears here",
+                    description:
+                        "Successfully signed exports are added automatically. You can also add completed exports from Activity using the menu above."
+                )
             } else {
                 ScrollView {
                     LazyVStack(spacing: 12) {
@@ -64,11 +71,15 @@ struct LocalLibraryView: View {
                                     SymbolTile(symbol: "app.badge.checkmark", size: 42)
                                     VStack(alignment: .leading, spacing: 5) {
                                         Text(app.displayName).font(.system(size: 15, weight: .semibold)).lineLimit(1)
-                                        Text(app.bundleIdentifier).font(.system(size: 12, design: .monospaced)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
-                                        Text("\(ByteCountFormatter.string(fromByteCount: Int64(app.byteCount), countStyle: .file)) · \(app.createdAt.formatted(date: .abbreviated, time: .shortened))")
-                                            .font(.system(size: 12)).foregroundStyle(.secondary)
+                                        Text(app.bundleIdentifier).font(.system(size: 12, design: .monospaced)).foregroundStyle(.secondary)
+                                            .lineLimit(1).truncationMode(.middle)
+                                        Text(
+                                            "\(ByteCountFormatter.string(fromByteCount: Int64(app.byteCount), countStyle: .file)) · \(app.createdAt.formatted(date: .abbreviated, time: .shortened))"
+                                        )
+                                        .font(.system(size: 12)).foregroundStyle(.secondary)
                                         if app.bundleVersion == nil {
-                                            Text("Download only · export again for install metadata").font(.system(size: 12)).foregroundStyle(Palette.warning)
+                                            Text("Download only · export again for install metadata").font(.system(size: 12))
+                                                .foregroundStyle(Palette.warning)
                                         }
                                     }
                                     Spacer(minLength: 0)
@@ -76,7 +87,8 @@ struct LocalLibraryView: View {
                                         Button("Remove Library Copy", role: .destructive) { Task { await library.remove(app) } }
                                             .disabled(library.isUpdating)
                                     } label: {
-                                        Image(systemName: "ellipsis").frame(width: AppMetrics.iconButtonSize, height: AppMetrics.iconButtonSize)
+                                        Image(systemName: "ellipsis").frame(
+                                            width: AppMetrics.iconButtonSize, height: AppMetrics.iconButtonSize)
                                     }.menuStyle(.borderlessButton).fixedSize().accessibilityLabel("Actions for \(app.displayName)")
                                 }
                             }
@@ -103,8 +115,12 @@ struct LocalLibraryView: View {
                     Spacer()
                 }
                 if let session = library.session {
-                    Text(session.installEnabled ? "Open this address in Safari on your iPhone or iPad, then tap Install on device. Keep LoadSide open." : "Open this address on a device on the same network to download apps. Keep LoadSide open.")
-                        .font(.system(size: 13)).foregroundStyle(.secondary)
+                    Text(
+                        session.installEnabled
+                            ? "Open this address in Safari on your iPhone or iPad, then tap Install on device. Keep LoadSide open."
+                            : "Open this address on a device on the same network to download apps. Keep LoadSide open."
+                    )
+                    .font(.system(size: 13)).foregroundStyle(.secondary)
                     Text(session.browserURL.absoluteString)
                         .font(.system(size: 12, design: .monospaced)).textSelection(.enabled)
                         .padding(12).frame(maxWidth: .infinity, alignment: .leading)
@@ -120,8 +136,12 @@ struct LocalLibraryView: View {
                             ForEach(session.networkURLs, id: \.self) { url in Text(url.absoluteString) }
                         }.font(.system(size: 11, design: .monospaced)).textSelection(.enabled).padding(.top, 8)
                     }.font(.system(size: 12))
-                    Text(session.installEnabled ? "The device must be eligible for the signed app. An install link does not verify installation or launch." : "For Install buttons, stop sharing and select Automatic HTTPS.")
-                        .font(.system(size: 13)).foregroundStyle(.secondary)
+                    Text(
+                        session.installEnabled
+                            ? "The device must be eligible for the signed app. An install link does not verify installation or launch."
+                            : "For Install buttons, stop sharing and select Automatic HTTPS."
+                    )
+                    .font(.system(size: 13)).foregroundStyle(.secondary)
                     Button("Stop Sharing", role: .destructive) { Task { await library.stop() } }
                         .disabled(library.isChangingServer)
                 } else {
@@ -137,8 +157,10 @@ struct LocalLibraryView: View {
                     }
                 }
                 Divider()
-                Text("Anyone with the link can download the library. Stop Sharing or quit LoadSide to invalidate its links. Local HTTP addresses are unencrypted.")
-                    .font(.system(size: 12)).foregroundStyle(.secondary)
+                Text(
+                    "Anyone with the link can download the library. Stop Sharing or quit LoadSide to invalidate its links. Local HTTP addresses are unencrypted."
+                )
+                .font(.system(size: 12)).foregroundStyle(.secondary)
             }
         }
     }
@@ -150,16 +172,24 @@ struct LocalLibraryView: View {
             }.pickerStyle(.menu)
             switch library.sharingMode {
             case .automaticHTTPS:
-                Text("Install from your browser without configuring a server. On first use, LoadSide downloads and verifies Cloudflare’s HTTPS helper (about 20 MB). No account or domain is needed.")
-                Text("Starting sharing makes this library reachable through Cloudflare. App downloads pass through their network; signing files stay on your Mac. Internet access is required. The temporary address changes each session.")
-                    .foregroundStyle(.secondary)
+                Text(
+                    "Install from your browser without configuring a server. On first use, LoadSide downloads and verifies Cloudflare’s HTTPS helper (about 20 MB). No account or domain is needed."
+                )
+                Text(
+                    "Starting sharing makes this library reachable through Cloudflare. App downloads pass through their network; signing files stay on your Mac. Internet access is required. The temporary address changes each session."
+                )
+                .foregroundStyle(.secondary)
             case .localDownloads:
-                Text("Browse and download on the same network. No external service is used. Direct installation requires an HTTPS connection.")
-                    .foregroundStyle(.secondary)
+                Text(
+                    "Browse and download on the same network. No external service is used. Direct installation requires an HTTPS connection."
+                )
+                .foregroundStyle(.secondary)
             case .customHTTPS:
                 TextField("https://apps.example.com", text: $library.httpsBaseURL).textFieldStyle(.roundedBorder)
-                Text("Point your reverse proxy at this Mac’s port and forward the full path. Its HTTPS certificate must be trusted by your device.")
-                    .foregroundStyle(.secondary)
+                Text(
+                    "Point your reverse proxy at this Mac’s port and forward the full path. Its HTTPS certificate must be trusted by your device."
+                )
+                .foregroundStyle(.secondary)
             }
             HStack {
                 Text("Local port")

@@ -1,6 +1,7 @@
 import Foundation
 import LoadSideCore
 import XCTest
+
 @testable import LoadSideApp
 
 final class JobHistoryStoreTests: XCTestCase {

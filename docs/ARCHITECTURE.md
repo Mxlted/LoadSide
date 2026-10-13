@@ -8,6 +8,14 @@ A macOS-only first release is intentional: Apple's maintained signing tools hand
 
 The app and CLI depend on `LoadSideCore`. `SigningRequest` is immutable job input by convention, `SigningEvent` is the progress contract, and `SigningResult` is emitted only after a verified export. UI code never decides entitlement authorization or edits binaries. Progress is derived from actual stages and code-object counts, not a timer.
 
+## Source organization
+
+The three Swift targets remain the main architectural boundaries. Inside Core, `SigningEngine` and `InjectionEngine` coordinate their distinct workflows; `BundleInventory` owns staged bundle discovery and metadata, and `IPAExport` owns shared validation, hashing, and exclusive output publication. Neither inventory nor unsigned export depends on signing orchestration. `Archive` and `Injection` propagate directory traversal failures rather than silently omitting unreadable content.
+
+The sharing layer separates `LocalAppServer` listener/connection lifecycle and response delivery from `LocalHTTP` request, route, range, manifest, and catalog logic. A connection emits at most one HTTP response: a transfer failure after headers closes the connection rather than appending an error response to IPA bytes.
+
+The desktop app keeps orchestration in `WorkspaceModel` and `LocalLibraryModel`, view composition in the view files, and compatible history records/persistence in `JobRecord` and `JobHistoryStore`. The CLI keeps argument parsing separate from command execution and shares progress/result serialization and cancellation handling. Core, app-persistence, and CLI tests exercise these boundaries independently. See the [contributor source map](../CONTRIBUTING.md#finding-the-right-code) for entry points.
+
 ## Job lifecycle
 
 1. Validate local inputs and reserve an isolated workspace.

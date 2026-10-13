@@ -13,7 +13,9 @@ enum IPAExport {
             throw LoadSideError("request.output", "Choose a local output file ending in .ipa.")
         }
         guard !FileManager.default.fileExists(atPath: output.path) else {
-            throw LoadSideError("output.exists", "An output file already exists at this destination.", recovery: "Choose another output name. LoadSide never overwrites an existing export.")
+            throw LoadSideError(
+                "output.exists", "An output file already exists at this destination.",
+                recovery: "Choose another output name. LoadSide never overwrites an existing export.")
         }
     }
 
@@ -42,7 +44,9 @@ enum IPAExport {
 
     static func commit(staging: URL, destination: URL) throws {
         guard renameatx_np(AT_FDCWD, staging.path, AT_FDCWD, destination.path, UInt32(RENAME_EXCL)) == 0 else {
-            throw LoadSideError("output.commit", "Could not atomically create the export: \(String(cString: strerror(errno))).", recovery: "Choose a writable destination and a filename that does not already exist.")
+            throw LoadSideError(
+                "output.commit", "Could not atomically create the export: \(String(cString: strerror(errno))).",
+                recovery: "Choose a writable destination and a filename that does not already exist.")
         }
     }
 

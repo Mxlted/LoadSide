@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import LoadSideCore
 
 final class SigningTests: XCTestCase {
@@ -10,9 +11,10 @@ final class SigningTests: XCTestCase {
         let profile = root.appendingPathComponent("Unused.mobileprovision")
         let output = root.appendingPathComponent("Signed.ipa")
         let malformed = BinaryFixtures.machoWithMalformedSignature()
-        let info = try PropertyListSerialization.data(fromPropertyList: [
-            "CFBundleIdentifier": "test.example.app", "CFBundleExecutable": "App"
-        ], format: .xml, options: 0)
+        let info = try PropertyListSerialization.data(
+            fromPropertyList: [
+                "CFBundleIdentifier": "test.example.app", "CFBundleExecutable": "App"
+            ], format: .xml, options: 0)
         let archive = ArchiveFixtures.tar([
             .init(path: "Payload/not signed at all.app/Info.plist", data: info),
             .init(path: "Payload/not signed at all.app/App", data: malformed)
@@ -24,7 +26,8 @@ final class SigningTests: XCTestCase {
         XCTAssertTrue(try MachO.inspect(data: malformed).hasCodeSignature)
 
         do {
-            _ = try await SigningEngine().run(.init(ipa: ipa, certificate: certificate, password: "", profiles: [profile], output: output)) { _ in }
+            _ = try await SigningEngine().run(.init(ipa: ipa, certificate: certificate, password: "", profiles: [profile], output: output))
+            { _ in }
             XCTFail("An app filename must not turn an entitlement-reading failure into an unsigned app")
         } catch let error as LoadSideError {
             XCTAssertEqual(error.code, "entitlements.read")
@@ -43,9 +46,11 @@ final class SigningTests: XCTestCase {
             case "file":
                 try Data("not an app".utf8).write(to: payload.appendingPathComponent("Malformed.app"))
             case "directory":
-                try FileManager.default.createDirectory(at: payload.appendingPathComponent("._Source.app"), withIntermediateDirectories: false)
+                try FileManager.default.createDirectory(
+                    at: payload.appendingPathComponent("._Source.app"), withIntermediateDirectories: false)
             default:
-                try FileManager.default.createSymbolicLink(atPath: payload.appendingPathComponent("._Source.app").path, withDestinationPath: "Source.app")
+                try FileManager.default.createSymbolicLink(
+                    atPath: payload.appendingPathComponent("._Source.app").path, withDestinationPath: "Source.app")
             }
             XCTAssertThrowsError(try BundleInventory.mainApp(in: root), kind) { error in
                 XCTAssertEqual((error as? LoadSideError)?.code, "ipa.payload")
@@ -57,7 +62,8 @@ final class SigningTests: XCTestCase {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
         defer { try? FileManager.default.removeItem(at: directory) }
-        let existing = directory.appendingPathComponent("existing.ipa"), staging = directory.appendingPathComponent("new.ipa")
+        let existing = directory.appendingPathComponent("existing.ipa")
+        let staging = directory.appendingPathComponent("new.ipa")
         try Data("original".utf8).write(to: existing)
         try Data("new".utf8).write(to: staging)
         XCTAssertThrowsError(try IPAExport.commit(staging: staging, destination: existing))
@@ -91,10 +97,15 @@ final class SigningTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: directory) }
         let app = directory.appendingPathComponent("Watch.app")
         try FileManager.default.createDirectory(at: app, withIntermediateDirectories: false)
-        let info: [String: Any] = ["CFBundleIdentifier": "com.old.main.watch", "WKCompanionAppBundleIdentifier": "com.old.main", "NSExtension": ["NSExtensionAttributes": ["WKAppBundleIdentifier": "com.old.main.watch"]]]
+        let info: [String: Any] = [
+            "CFBundleIdentifier": "com.old.main.watch", "WKCompanionAppBundleIdentifier": "com.old.main",
+            "NSExtension": ["NSExtensionAttributes": ["WKAppBundleIdentifier": "com.old.main.watch"]]
+        ]
         let bundle = CodeBundle(url: app, executable: app.appendingPathComponent("binary"), identifier: "com.old.main.watch", info: info)
         try BundleInventory.rewriteIdentifiers(in: [bundle], original: "com.old.main", replacement: "com.new.main")
-        let output = try XCTUnwrap(try PropertyListSerialization.propertyList(from: Data(contentsOf: app.appendingPathComponent("Info.plist")), format: nil) as? [String: Any])
+        let output = try XCTUnwrap(
+            try PropertyListSerialization.propertyList(from: Data(contentsOf: app.appendingPathComponent("Info.plist")), format: nil)
+                as? [String: Any])
         XCTAssertEqual(output["CFBundleIdentifier"] as? String, "com.new.main.watch")
         XCTAssertEqual(output["WKCompanionAppBundleIdentifier"] as? String, "com.new.main")
     }
@@ -110,14 +121,19 @@ final class SigningTests: XCTestCase {
             try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
             try FileManager.default.copyItem(at: URL(fileURLWithPath: "/bin/echo"), to: url.appendingPathComponent(name))
             try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: url.appendingPathComponent(name).path)
-            try BundleInventory.writeInfo(["CFBundleIdentifier": "com.example.fixture.\(name)", "CFBundleExecutable": name,
-                                           "CFBundlePackageType": type, "CFBundleVersion": "1", "CFBundleShortVersionString": "1.0"], to: url)
+            try BundleInventory.writeInfo(
+                [
+                    "CFBundleIdentifier": "com.example.fixture.\(name)", "CFBundleExecutable": name,
+                    "CFBundlePackageType": type, "CFBundleVersion": "1", "CFBundleShortVersionString": "1.0"
+                ], to: url)
         }
         let resource = widget.appendingPathComponent("sealed.txt")
         try Data("original".utf8).write(to: resource)
         let localizedResources = app.appendingPathComponent("Localization.bundle")
         try FileManager.default.createDirectory(at: localizedResources, withIntermediateDirectories: false)
-        try BundleInventory.writeInfo(["CFBundleIdentifier": "com.example.localization", "CFBundleExecutable": "Localization", "CFBundlePackageType": "BNDL"], to: localizedResources)
+        try BundleInventory.writeInfo(
+            ["CFBundleIdentifier": "com.example.localization", "CFBundleExecutable": "Localization", "CFBundlePackageType": "BNDL"],
+            to: localizedResources)
         try Data("resource-only".utf8).write(to: localizedResources.appendingPathComponent("labels.txt"))
         let targets = try BundleInventory.signingTargets(in: app)
         XCTAssertEqual(targets.map(\.lastPathComponent), ["Widget.appex", "Fixture.app"])
@@ -127,12 +143,16 @@ final class SigningTests: XCTestCase {
         }
         let runner = ProcessRunner()
         for target in targets {
-            _ = try await runner.run("/usr/bin/codesign", ["--force", "--sign", "-", "--timestamp=none", "--generate-entitlement-der", target.path])
+            _ = try await runner.run(
+                "/usr/bin/codesign", ["--force", "--sign", "-", "--timestamp=none", "--generate-entitlement-der", target.path])
         }
         for target in targets { _ = try await runner.run("/usr/bin/codesign", ["--verify", "--strict", target.path]) }
         let execution = try await runner.run(app.appendingPathComponent("Fixture").path, ["executable-permissions-restored"])
-        XCTAssertEqual(String(decoding: execution.stdout, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines), "executable-permissions-restored")
-        let ipa = directory.appendingPathComponent("fixture.ipa"), unpacked = directory.appendingPathComponent("unpacked")
+        XCTAssertEqual(
+            String(decoding: execution.stdout, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines),
+            "executable-permissions-restored")
+        let ipa = directory.appendingPathComponent("fixture.ipa")
+        let unpacked = directory.appendingPathComponent("unpacked")
         try Archive.createIPA(from: tree, to: ipa)
         try Archive.extract(ipa, to: unpacked)
         let exportedApp = unpacked.appendingPathComponent("Payload/Fixture.app")
@@ -153,7 +173,10 @@ final class SigningTests: XCTestCase {
         try FileManager.default.createDirectory(at: app, withIntermediateDirectories: false)
         try FileManager.default.copyItem(at: URL(fileURLWithPath: "/bin/echo"), to: app.appendingPathComponent("Fixture"))
         try BundleInventory.writeInfo(["CFBundleIdentifier": "com.example.fixture", "CFBundleExecutable": "Fixture"], to: app)
-        let variants: [[String: Any]] = [[:], ["CFBundleExecutable": ""], ["CFBundleExecutable": "NotShipped"], ["CFBundleIdentifier": "com.example.resources", "CFBundleExecutable": ""]]
+        let variants: [[String: Any]] = [
+            [:], ["CFBundleExecutable": ""], ["CFBundleExecutable": "NotShipped"],
+            ["CFBundleIdentifier": "com.example.resources", "CFBundleExecutable": ""]
+        ]
         for (index, metadata) in variants.enumerated() {
             let resource = app.appendingPathComponent("Resource\(index).bundle")
             try FileManager.default.createDirectory(at: resource, withIntermediateDirectories: false)
@@ -165,7 +188,9 @@ final class SigningTests: XCTestCase {
         try FileManager.default.createDirectory(at: malformedCode, withIntermediateDirectories: false)
         try FileManager.default.copyItem(at: URL(fileURLWithPath: "/bin/echo"), to: malformedCode.appendingPathComponent("Code"))
         try BundleInventory.writeInfo(["CFBundleExecutable": "Code"], to: malformedCode)
-        XCTAssertThrowsError(try BundleInventory.discover(in: app)) { error in XCTAssertEqual((error as? LoadSideError)?.code, "bundle.metadata") }
+        XCTAssertThrowsError(try BundleInventory.discover(in: app)) { error in
+            XCTAssertEqual((error as? LoadSideError)?.code, "bundle.metadata")
+        }
     }
 
     func testExtensionsArePreservedByDefaultAndRemovedOnlyFromExplicitStagedCopy() throws {

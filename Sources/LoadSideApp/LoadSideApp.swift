@@ -35,10 +35,12 @@ struct LoadSideApp: App {
         .commands {
             CommandGroup(replacing: .newItem) {
                 Button("Open IPA…", action: model.chooseIPA).keyboardShortcut("o").disabled(model.isRunning)
-                Button("New Session", action: model.reset).keyboardShortcut("n").disabled(model.isRunning || model.isManagingSigningProfiles)
+                Button("New Session", action: model.reset).keyboardShortcut("n").disabled(
+                    model.isRunning || model.isManagingSigningProfiles)
             }
             CommandMenu("Workflow") {
-                Button(model.jobMode == .sign ? "Sign & Export…" : "Inject & Export…", action: model.beginSigning).keyboardShortcut("r").disabled(!model.canSign)
+                Button(model.jobMode == .sign ? "Sign & Export…" : "Inject & Export…", action: model.beginSigning).keyboardShortcut("r")
+                    .disabled(!model.canSign)
                 Button("Cancel Export", action: model.cancel).keyboardShortcut(".").disabled(!model.isRunning || model.isCancelling)
                 Divider()
                 Button("Import Certificate…", action: model.chooseCertificate).disabled(model.isRunning)
@@ -115,26 +117,37 @@ struct MainView: View {
         .toolbar { workspaceToolbar }
         .alert("Unable to complete action", isPresented: Binding(get: { model.notice != nil }, set: { if !$0 { model.notice = nil } })) {
             Button("OK") { model.notice = nil }
-        } message: { Text(model.notice ?? "") }
+        } message: {
+            Text(model.notice ?? "")
+        }
     }
 
     @ToolbarContentBuilder private var workspaceToolbar: some ToolbarContent {
         ToolbarItem(placement: .navigation) {
-            Button { sidebarVisible.toggle() } label: { Label("Toggle Sidebar", systemImage: "sidebar.left") }
-                .help(sidebarVisible ? "Hide sidebar" : "Show sidebar")
+            Button {
+                sidebarVisible.toggle()
+            } label: {
+                Label("Toggle Sidebar", systemImage: "sidebar.left")
+            }
+            .help(sidebarVisible ? "Hide sidebar" : "Show sidebar")
         }
         if model.isRunning {
             ToolbarItem(placement: .principal) {
                 HStack(spacing: 9) {
                     ProgressView().controlSize(.mini)
-                    Text(model.isCancelling ? "Cancelling…" : model.jobMode == .sign ? "Signing…" : "Injecting…").font(.system(size: 13)).foregroundStyle(.secondary)
+                    Text(model.isCancelling ? "Cancelling…" : model.jobMode == .sign ? "Signing…" : "Injecting…").font(.system(size: 13))
+                        .foregroundStyle(.secondary)
                 }
             }
         }
         ToolbarItem(placement: .automatic) {
-            Button { model.reset() } label: { Label("New Session", systemImage: "doc.badge.plus") }
-                .help("New session (⌘N)").accessibilityLabel("New session")
-                .disabled(model.isRunning || model.isManagingSigningProfiles)
+            Button {
+                model.reset()
+            } label: {
+                Label("New Session", systemImage: "doc.badge.plus")
+            }
+            .help("New session (⌘N)").accessibilityLabel("New session")
+            .disabled(model.isRunning || model.isManagingSigningProfiles)
         }
     }
 
@@ -149,10 +162,13 @@ struct MainView: View {
             }.padding(.horizontal, 7).padding(.top, 9)
             VStack(spacing: 6) {
                 ForEach(AppSection.allCases) { section in
-                    Button { model.section = section } label: {
+                    Button {
+                        model.section = section
+                    } label: {
                         HStack(spacing: 11) {
                             Image(systemName: section.symbol).frame(width: 22)
-                            Text(section.rawValue).font(.system(size: 13, weight: model.section == section ? .semibold : .regular)).lineLimit(1)
+                            Text(section.rawValue).font(.system(size: 13, weight: model.section == section ? .semibold : .regular))
+                                .lineLimit(1)
                             Spacer(minLength: 0)
                             if section == .activity, model.isRunning {
                                 ProgressView().controlSize(.mini).accessibilityLabel("Export in progress")
@@ -160,8 +176,10 @@ struct MainView: View {
                         }
                         .padding(.horizontal, 10).padding(.vertical, 11)
                         .foregroundStyle(model.section == section ? Color.primary : Color.secondary)
-                        .background(model.section == section ? Palette.accent.opacity(0.16) : .clear,
-                                    in: RoundedRectangle(cornerRadius: 11))
+                        .background(
+                            model.section == section ? Palette.accent.opacity(0.16) : .clear,
+                            in: RoundedRectangle(cornerRadius: 11)
+                        )
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)

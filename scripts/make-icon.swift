@@ -12,7 +12,8 @@ func drawIcon(size: Int) throws -> Data {
     context.scaleBy(x: CGFloat(size) / 1024, y: CGFloat(size) / 1024)
     let rect = NSRect(x: 36, y: 36, width: 952, height: 952)
     let shape = NSBezierPath(roundedRect: rect, xRadius: 220, yRadius: 220)
-    let background = NSGradient(starting: NSColor(red: 0.19, green: 0.21, blue: 0.30, alpha: 1), ending: NSColor(red: 0.065, green: 0.075, blue: 0.12, alpha: 1))!
+    let background = NSGradient(
+        starting: NSColor(red: 0.19, green: 0.21, blue: 0.30, alpha: 1), ending: NSColor(red: 0.065, green: 0.075, blue: 0.12, alpha: 1))!
     background.draw(in: shape, angle: -70)
     NSColor(white: 1, alpha: 0.11).setStroke()
     shape.lineWidth = 3
@@ -50,8 +51,9 @@ func drawIcon(size: Int) throws -> Data {
     NSShadow().set()
     image.unlockFocus()
     guard let tiff = image.tiffRepresentation,
-          let bitmap = NSBitmapImageRep(data: tiff),
-          let png = bitmap.representation(using: .png, properties: [:]) else { fatalError("Unable to render icon") }
+        let bitmap = NSBitmapImageRep(data: tiff),
+        let png = bitmap.representation(using: .png, properties: [:])
+    else { fatalError("Unable to render icon") }
     return png
 }
 

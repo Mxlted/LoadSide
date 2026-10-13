@@ -3,7 +3,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 if [[ $# -eq 1 && "$1" == '--help' ]]; then
   echo 'Usage: scripts/check.sh [--skip-build]'
-  echo 'Run tests, a release build, CLI smoke checks and repository hygiene checks.'
+  echo 'Run formatting, tests, a release build, CLI smoke checks and repository hygiene checks.'
+  echo '--skip-build skips tests and compilation; existing release binaries are required.'
   exit 0
 fi
 if [[ $# -gt 1 || ( $# -eq 1 && "$1" != "--skip-build" ) ]]; then
@@ -11,6 +12,7 @@ if [[ $# -gt 1 || ( $# -eq 1 && "$1" != "--skip-build" ) ]]; then
   exit 2
 fi
 for script in scripts/*.sh; do bash -n "$script"; done
+scripts/format.sh --check
 scripts/check-packaging.sh
 source scripts/build-support.sh
 loadside_configure_build

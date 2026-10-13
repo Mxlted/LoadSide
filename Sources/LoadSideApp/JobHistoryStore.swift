@@ -5,7 +5,9 @@ struct JobHistoryStore {
     let url: URL
 
     init(url: URL? = nil) {
-        self.url = url ?? URL.applicationSupportDirectory
+        self.url =
+            url
+            ?? URL.applicationSupportDirectory
             .appendingPathComponent("LoadSide", isDirectory: true)
             .appendingPathComponent("history.json")
     }

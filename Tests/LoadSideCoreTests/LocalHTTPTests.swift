@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+
 @testable import LoadSideCore
 
 final class LocalHTTPTests: XCTestCase {
@@ -53,7 +54,10 @@ final class LocalHTTPTests: XCTestCase {
     }
 
     func testRejectsUnsafeURLsRequestsAndAmbiguousRanges() throws {
-        for value in ["http://apps.example.com", "https://user:password@apps.example.com", "https://apps.example.com/path", "https://apps.example.com?query", "https://apps.example.com#fragment", "file:///tmp/apps"] {
+        for value in [
+            "http://apps.example.com", "https://user:password@apps.example.com", "https://apps.example.com/path",
+            "https://apps.example.com?query", "https://apps.example.com#fragment", "file:///tmp/apps"
+        ] {
             XCTAssertThrowsError(try LocalHTTP.validateHTTPSBase(URL(string: value)))
         }
         XCTAssertEqual(try LocalHTTP.validateHTTPSBase(URL(string: "https://apps.example.com:8443"))?.host, "apps.example.com")
@@ -64,7 +68,9 @@ final class LocalHTTPTests: XCTestCase {
             XCTAssertThrowsError(try LocalHTTP.parse(Data("GET /token/ HTTP/1.1\r\n\(fields)\r\n\r\n".utf8)))
         }
         XCTAssertThrowsError(try LocalHTTP.parse(Data("GET / HTTP/1.1\r\n\r\nbody".utf8)))
-        for value in ["bytes=1-2,4-5", "bytes=-0", "bytes=999-", "bytes=7-2", "bytes=--1", "bytes=+1-3", "bytes=99999999999999999999999999-"] {
+        for value in [
+            "bytes=1-2,4-5", "bytes=-0", "bytes=999-", "bytes=7-2", "bytes=--1", "bytes=+1-3", "bytes=99999999999999999999999999-"
+        ] {
             XCTAssertThrowsError(try LocalHTTP.byteRange(value, size: 10))
         }
         XCTAssertEqual(try LocalHTTP.byteRange("bytes=-3", size: 10), 7...9)
@@ -73,23 +79,28 @@ final class LocalHTTPTests: XCTestCase {
     }
 
     func testManifestUsesActualBundleVersionEscapesNamesAndNeverInstallsWithoutHTTPS() async throws {
-        let root = try BinaryFixtures.temporaryDirectory(); defer { try? FileManager.default.removeItem(at: root) }
+        let root = try BinaryFixtures.temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
         let library = LocalAppLibrary(directory: root.appendingPathComponent("apps"))
         let result = try libraryResult(root, name: "<script>alert('x')</script> & App")
         let app = try await library.add(result)
         let base = URL(string: "https://apps.example.com/012345/")!
         let local = URL(string: "http://127.0.0.1:8080/012345/")!
         let session = LocalAppServerSession(localURL: local, networkURLs: [], httpsURL: nil, port: 8080)
-        XCTAssertNil(session.installURL(for: app)); XCTAssertFalse(session.installEnabled)
+        XCTAssertNil(session.installURL(for: app))
+        XCTAssertFalse(session.installEnabled)
         let page = LocalHTTP.page([app], session: session)
-        XCTAssertFalse(page.contains("<script>")); XCTAssertTrue(page.contains("&lt;script&gt;"))
+        XCTAssertFalse(page.contains("<script>"))
+        XCTAssertTrue(page.contains("&lt;script&gt;"))
         XCTAssertFalse(page.contains("itms-services"))
         let httpsSession = LocalAppServerSession(localURL: local, networkURLs: [], httpsURL: base, port: 8080)
         XCTAssertNotNil(httpsSession.installURL(for: app))
         let data = try LocalHTTP.manifest(app, baseURL: base)
         let plist = try XCTUnwrap(PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any])
-        let items = try XCTUnwrap(plist["items"] as? [[String: Any]]), metadata = try XCTUnwrap(items.first?["metadata"] as? [String: String])
-        XCTAssertEqual(metadata["bundle-version"], "42.1"); XCTAssertEqual(metadata["title"], result.displayName)
+        let items = try XCTUnwrap(plist["items"] as? [[String: Any]])
+        let metadata = try XCTUnwrap(items.first?["metadata"] as? [String: String])
+        XCTAssertEqual(metadata["bundle-version"], "42.1")
+        XCTAssertEqual(metadata["title"], result.displayName)
         let assets = try XCTUnwrap(items.first?["assets"] as? [[String: String]])
         XCTAssertEqual(assets.first?["url"], base.appendingPathComponent("apps/\(app.id.uuidString).ipa").absoluteString)
         let legacy = try await library.add(try libraryResult(root, version: nil))

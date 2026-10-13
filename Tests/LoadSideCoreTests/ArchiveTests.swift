@@ -1,24 +1,39 @@
 import Foundation
 import XCTest
+
 @testable import LoadSideCore
 
 final class ArchiveTests: XCTestCase {
     func testTarAndZipRoundTripPreservesSafeFrameworkSymlink() throws {
-        let root = try BinaryFixtures.temporaryDirectory(); defer { try? FileManager.default.removeItem(at: root) }
-        let tar = root.appendingPathComponent("input.tar"), unpacked = root.appendingPathComponent("unpacked")
-        try ArchiveFixtures.tar([.init(path: "Payload/Test.app/Versions/A/Code", data: Data("binary".utf8)), .init(path: "Payload/Test.app/Code", type: 50, link: "Versions/A/Code")]).write(to: tar)
+        let root = try BinaryFixtures.temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let tar = root.appendingPathComponent("input.tar")
+        let unpacked = root.appendingPathComponent("unpacked")
+        try ArchiveFixtures.tar([
+            .init(path: "Payload/Test.app/Versions/A/Code", data: Data("binary".utf8)),
+            .init(path: "Payload/Test.app/Code", type: 50, link: "Versions/A/Code")
+        ]).write(to: tar)
         try Archive.extract(tar, to: unpacked)
         let zip = root.appendingPathComponent("output.ipa")
         try Archive.createIPA(from: unpacked, to: zip)
         XCTAssertEqual((try FileManager.default.attributesOfItem(atPath: zip.path)[.posixPermissions] as? NSNumber)?.intValue, 0o600)
-        let again = root.appendingPathComponent("again"); try Archive.extract(zip, to: again)
+        let again = root.appendingPathComponent("again")
+        try Archive.extract(zip, to: again)
         XCTAssertEqual(try String(contentsOf: again.appendingPathComponent("Payload/Test.app/Code"), encoding: .utf8), "binary")
-        XCTAssertEqual(try FileManager.default.destinationOfSymbolicLink(atPath: again.appendingPathComponent("Payload/Test.app/Code").path), "Versions/A/Code")
+        XCTAssertEqual(
+            try FileManager.default.destinationOfSymbolicLink(atPath: again.appendingPathComponent("Payload/Test.app/Code").path),
+            "Versions/A/Code")
     }
     func testTraversalAbsoluteHardlinkAndDeviceRejected() throws {
-        for entry in [ArchiveFixtures.Entry(path: "../escape"), .init(path: "/tmp/escape"), .init(path: "a\\b"), .init(path: "hard", type: 49, link: "target"), .init(path: "device", type: 51), .init(path: "link", type: 50, link: "../../escape")] {
-            let root = try BinaryFixtures.temporaryDirectory(); defer { try? FileManager.default.removeItem(at: root) }
-            let archive = root.appendingPathComponent("test.tar"); try ArchiveFixtures.tar([entry]).write(to: archive)
+        for entry in [
+            ArchiveFixtures.Entry(path: "../escape"), .init(path: "/tmp/escape"), .init(path: "a\\b"),
+            .init(path: "hard", type: 49, link: "target"), .init(path: "device", type: 51),
+            .init(path: "link", type: 50, link: "../../escape")
+        ] {
+            let root = try BinaryFixtures.temporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: root) }
+            let archive = root.appendingPathComponent("test.tar")
+            try ArchiveFixtures.tar([entry]).write(to: archive)
             XCTAssertThrowsError(try Archive.extract(archive, to: root.appendingPathComponent("out")), entry.path)
         }
     }
@@ -29,22 +44,27 @@ final class ArchiveTests: XCTestCase {
             [.init(path: "link", type: 50, link: "missing")]
         ]
         for entries in cases {
-            let root = try BinaryFixtures.temporaryDirectory(); defer { try? FileManager.default.removeItem(at: root) }
-            let archive = root.appendingPathComponent("test.tar"); try ArchiveFixtures.tar(entries).write(to: archive)
+            let root = try BinaryFixtures.temporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: root) }
+            let archive = root.appendingPathComponent("test.tar")
+            try ArchiveFixtures.tar(entries).write(to: archive)
             XCTAssertThrowsError(try Archive.extract(archive, to: root.appendingPathComponent("out")))
         }
     }
     func testExternalCompressionFormatsAreRejected() throws {
         for (name, header) in [("payload.lrz", "LRZI"), ("payload.grz", "GRZipII\0"), ("payload.lz", "LZIP")] {
-            let root = try BinaryFixtures.temporaryDirectory(); defer { try? FileManager.default.removeItem(at: root) }
+            let root = try BinaryFixtures.temporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: root) }
             let archive = root.appendingPathComponent(name)
             try (Data(header.utf8) + Data(repeating: 0, count: 64)).write(to: archive)
             XCTAssertThrowsError(try Archive.extract(archive, to: root.appendingPathComponent("out")))
         }
     }
     func testLimitsAndNonEmptyDestination() throws {
-        let root = try BinaryFixtures.temporaryDirectory(); defer { try? FileManager.default.removeItem(at: root) }
-        let archive = root.appendingPathComponent("test.tar"); try ArchiveFixtures.tar([.init(path: "file", data: Data(repeating: 1, count: 100))]).write(to: archive)
+        let root = try BinaryFixtures.temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let archive = root.appendingPathComponent("test.tar")
+        try ArchiveFixtures.tar([.init(path: "file", data: Data(repeating: 1, count: 100))]).write(to: archive)
         XCTAssertThrowsError(try Archive.extract(archive, to: root.appendingPathComponent("limited"), limits: .init(maximumFileBytes: 10)))
         XCTAssertThrowsError(try Archive.extract(archive, to: root))
     }
@@ -76,8 +96,10 @@ final class ArchiveTests: XCTestCase {
 
 extension ArchiveTests {
     func testBuiltInGzipExtraction() async throws {
-        let root = try BinaryFixtures.temporaryDirectory(); defer { try? FileManager.default.removeItem(at: root) }
-        let tar = root.appendingPathComponent("data.tar"), gzip = root.appendingPathComponent("data.tar.gz")
+        let root = try BinaryFixtures.temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let tar = root.appendingPathComponent("data.tar")
+        let gzip = root.appendingPathComponent("data.tar.gz")
         try ArchiveFixtures.tar([.init(path: "file", data: Data("gzip fixture".utf8))]).write(to: tar)
         let compressed = try await ProcessRunner().run("/usr/bin/gzip", ["-c", tar.path])
         try compressed.stdout.write(to: gzip)

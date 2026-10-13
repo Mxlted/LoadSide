@@ -1,5 +1,5 @@
-import Foundation
 import CoreFoundation
+import Foundation
 
 struct EntitlementResolution {
     let values: [String: Any]
@@ -8,14 +8,17 @@ struct EntitlementResolution {
 
 enum EntitlementResolver {
     /// Profile values authorize requested capabilities; they are not copied wholesale.
-    static func resolve(requested: [String: Any], profile: ProvisioningProfile, bundleIdentifier: String,
-                        policy: EntitlementPolicy, useProfileIdentity: Bool = false,
-                        onWarning: (String) -> Void = { _ in }) throws -> EntitlementResolution {
+    static func resolve(
+        requested: [String: Any], profile: ProvisioningProfile, bundleIdentifier: String,
+        policy: EntitlementPolicy, useProfileIdentity: Bool = false,
+        onWarning: (String) -> Void = { _ in }
+    ) throws -> EntitlementResolution {
         if useProfileIdentity {
             // Main/extension eligibility is resolved by the signing plan. Here
             // only an exact identity can be used; wildcard claims are never signed.
             guard !profile.bundleIdentifierPattern.contains("*") else {
-                throw LoadSideError("entitlements.profileIdentity", "Profile identity reuse requires an exact signing application-identifier.")
+                throw LoadSideError(
+                    "entitlements.profileIdentity", "Profile identity reuse requires an exact signing application-identifier.")
             }
             try SigningPreflight.validateIdentifier(profile.bundleIdentifierPattern)
         }
@@ -58,30 +61,39 @@ enum EntitlementResolver {
                 // Shared keys must retain ordinary and already-authorized items.
                 // Malformed values continue through normal policy validation.
                 guard let values = value as? [String] else { continue }
-                let omitted = Set(values.filter { item in
-                    restrictedValues.contains(item)
-                        && profile.entitlements[key].map({ isAuthorized([item], by: $0, entitlement: key) }) != true
-                })
+                let omitted = Set(
+                    values.filter { item in
+                        restrictedValues.contains(item)
+                            && profile.entitlements[key].map({ isAuthorized([item], by: $0, entitlement: key) }) != true
+                    })
                 guard !omitted.isEmpty else { continue }
                 let remaining = values.filter { !omitted.contains($0) }
-                if remaining.isEmpty { result.removeValue(forKey: key) }
-                else { result[key] = remaining }
+                if remaining.isEmpty { result.removeValue(forKey: key) } else { result[key] = remaining }
                 detail = " values [\(omitted.sorted().joined(separator: ", "))]"
             } else {
                 result.removeValue(forKey: key)
             }
-            warn("Omitted Apple-approval entitlement \(key)\(detail) (\(entry.name)) from \(bundleIdentifier): profile “\(profile.name)” does not authorize it. This capability is not required to continue signing. Features using it may stop working.")
+            warn(
+                "Omitted Apple-approval entitlement \(key)\(detail) (\(entry.name)) from \(bundleIdentifier): profile “\(profile.name)” does not authorize it. This capability is not required to continue signing. Features using it may stop working."
+            )
         }
         for key in result.keys.sorted() {
             guard let value = result[key] else { continue }
             let authorized = profile.entitlements[key].map { isAuthorized(value, by: $0, entitlement: key) } ?? false
             if authorized { continue }
-            if key == "get-task-allow", value as? Bool == false, profile.entitlements[key] == nil { result.removeValue(forKey: key); continue }
+            if key == "get-task-allow", value as? Bool == false, profile.entitlements[key] == nil {
+                result.removeValue(forKey: key)
+                continue
+            }
             if policy == .compatible, !["application-identifier", "com.apple.developer.team-identifier"].contains(key) {
                 result.removeValue(forKey: key)
                 warn("Removed unsupported entitlement \(key) from \(bundleIdentifier). Features using it may stop working.")
             } else {
-                throw LoadSideError("entitlements.unsupported", "Profile “\(profile.name)” does not authorize entitlement “\(key)” requested by \(bundleIdentifier).", recovery: "Use a profile with this capability, or explicitly choose Compatible mode to remove unsupported capabilities.")
+                throw LoadSideError(
+                    "entitlements.unsupported",
+                    "Profile “\(profile.name)” does not authorize entitlement “\(key)” requested by \(bundleIdentifier).",
+                    recovery: "Use a profile with this capability, or explicitly choose Compatible mode to remove unsupported capabilities."
+                )
             }
         }
         return EntitlementResolution(values: result, warnings: warnings)

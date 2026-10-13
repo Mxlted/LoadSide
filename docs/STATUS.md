@@ -4,6 +4,17 @@ Target: **0.1.0-rc.2**, local evaluation release candidate. This file records ev
 
 The [RC.2 artifact qualification record](QUALIFICATION-0.1.0-rc.2.md) identifies the historical RC.2 app, source commit, checksums and remaining release gates. Qualification records below describe the builds tested at that time; their old artifact paths are historical and are superseded by the canonical local package.
 
+## Code quality and maintainability pass — 2026-10-13
+
+- Reviewed the engine, desktop app, CLI, sharing/helper lifecycle, tests, scripts, and developer documentation in coordinated parallel reviews. Retained the three Swift targets and their existing public APIs, signing policies, and persisted history schema.
+- Separated bundle discovery and common IPA export transactions from signing orchestration; split HTTP protocol/presentation helpers from connection lifecycle; extracted desktop library state, history records/persistence, and CLI parsing/execution support. Shared synthetic test builders now live in `Tests/LoadSideCoreTests/Support`.
+- Fixed silent directory-enumeration failures, ambiguous rootful/rootless injection aliases, filename-spoofable unsigned detection, and HTTP failure responses after headers were sent. New tests also exposed and fixed byte/character confusion in HTTP CRLF framing and password-file line endings. Password-file reads now reject links/special files and enforce bounds before reading; the README records that input restriction.
+- Preserved engine event IDs/timestamps during redaction, removed unused workspace members, and disabled credential edits during saved-profile operations. Added standalone app-history and CLI tests for compatibility and input boundaries.
+- Applied the bundled Swift formatter consistently to owned sources, with a checked-in configuration and editor defaults; `scripts/check.sh` now enforces formatting. Expanded the contributor source map and development workflow. Corrected the security document's obsolete claim that the app makes no service requests, distinguishing local signing from optional sharing.
+- Validation: full XcodeBuildMCP debug build, focused regression checks, and `scripts/check.sh` passed. The complete suite contains **159 tests** (147 core, 9 CLI, 3 app-history), with zero failures or skips; the check also passed release compilation, formatting, packaging guards, CLI smoke checks, SDK metadata verification, and tracked-file hygiene. `git diff --check` passed.
+- Universal ARM64/x86_64 local packaging and strict ad-hoc signature verification passed. Updated `dist/LoadSide.app` and its `dist/loadside` link; no release ZIP or public distribution was created.
+- Remaining engineering debt: existing `SecKeychain`/ACL APIs produce deprecation warnings and need a separately qualified migration; desktop interaction coverage remains manual beyond history-model tests. No new real-credential, live-tunnel, device installation, Intel/minimum-macOS runtime, Developer ID, or notarization qualification is claimed by this pass.
+
 ## Consistent app-wide disclosure controls — 2026-10-13
 
 - Moved full-row disclosure behavior into the shared design system and applied it at the app root. Help, Local Library's Other addresses, signing and injection options, and nested extension details use the same control. Nested content reapplies the style because SwiftUI otherwise resets it. Help header padding is part of the click target.

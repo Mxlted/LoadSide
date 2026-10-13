@@ -1,5 +1,5 @@
-import SwiftUI
 import LoadSideCore
+import SwiftUI
 
 struct ActivityView: View {
     @ObservedObject var model: WorkspaceModel
@@ -15,13 +15,17 @@ struct ActivityView: View {
             }.padding(AppMetrics.pagePadding)
             if let notice = model.storageNotice { InlineNotice(message: notice).padding(.horizontal, 26).padding(.bottom, 17) }
             if model.history.isEmpty {
-                EmptyState(symbol: "clock", title: "No export activity", description: "Exports appear here with verification details, warnings, and a diagnostic log.")
+                EmptyState(
+                    symbol: "clock", title: "No export activity",
+                    description: "Exports appear here with verification details, warnings, and a diagnostic log.")
             } else {
                 HSplitView {
-                    List(selection: Binding<UUID?>(
-                        get: { model.selectedJob?.id },
-                        set: { model.selectedJobID = $0 }
-                    )) {
+                    List(
+                        selection: Binding<UUID?>(
+                            get: { model.selectedJob?.id },
+                            set: { model.selectedJobID = $0 }
+                        )
+                    ) {
                         ForEach(model.history) { job in
                             VStack(alignment: .leading, spacing: 10) {
                                 Text(job.sourceName).font(.system(size: 14, weight: .medium)).lineLimit(2).truncationMode(.middle)
@@ -47,7 +51,9 @@ struct ActivityView: View {
         .alert("Clear local export history?", isPresented: $confirmClear) {
             Button("Cancel", role: .cancel) {}
             Button("Clear History", role: .destructive) { model.clearHistory() }
-        } message: { Text("This removes saved event logs and verification records. Exported IPA files remain on disk. A running session is kept.") }
+        } message: {
+            Text("This removes saved event logs and verification records. Exported IPA files remain on disk. A running session is kept.")
+        }
     }
 }
 
@@ -58,7 +64,9 @@ private struct JobDetailView: View {
         VStack(alignment: .leading, spacing: 26) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text(job.result?.displayName ?? job.injectionResult?.displayName ?? job.sourceName).font(.system(size: 23, weight: .semibold)).lineLimit(2).truncationMode(.middle)
+                    Text(job.result?.displayName ?? job.injectionResult?.displayName ?? job.sourceName).font(
+                        .system(size: 23, weight: .semibold)
+                    ).lineLimit(2).truncationMode(.middle)
                     Text(job.startedAt.formatted(date: .abbreviated, time: .standard)).font(.system(size: 13)).foregroundStyle(.secondary)
                 }
                 Spacer()
@@ -71,7 +79,9 @@ private struct JobDetailView: View {
             if let failure = job.failure { InlineNotice(message: failure, color: job.status == .failed ? Palette.error : Palette.warning) }
             if let recovery = job.recovery { Text(recovery).font(.system(size: 13)).foregroundStyle(.secondary).textSelection(.enabled) }
             if job.injectionResult != nil {
-                InlineNotice(message: "This IPA is unsigned. Injection and archive checks completed, but signing is required before installation.", symbol: "signature")
+                InlineNotice(
+                    message: "This IPA is unsigned. Injection and archive checks completed, but signing is required before installation.",
+                    symbol: "signature")
             }
             Panel {
                 VStack(alignment: .leading, spacing: 13) {
@@ -100,11 +110,18 @@ private struct JobDetailView: View {
                         }
                     }
                     if job.jobMode != .injectOnly {
-                        MetadataRow(label: "Entitlements", value: job.entitlementPolicy == .strict ? "Strict" : "Compatible (removals allowed)")
-                        MetadataRow(label: "Extension profiles", value: job.extensionProfilePolicy == .reuseMain ? "Reuse main identity (experimental)" : "Require matching profiles")
+                        MetadataRow(
+                            label: "Entitlements", value: job.entitlementPolicy == .strict ? "Strict" : "Compatible (removals allowed)")
+                        MetadataRow(
+                            label: "Extension profiles",
+                            value: job.extensionProfilePolicy == .reuseMain
+                                ? "Reuse main identity (experimental)" : "Require matching profiles")
                     }
                     MetadataRow(label: "Extensions", value: job.removeExtensions == true ? "Removal requested" : "Retained")
-                    if let finished = job.finishedAt { MetadataRow(label: "Duration", value: "\(String(format: "%.1f", finished.timeIntervalSince(job.startedAt))) seconds") }
+                    if let finished = job.finishedAt {
+                        MetadataRow(
+                            label: "Duration", value: "\(String(format: "%.1f", finished.timeIntervalSince(job.startedAt))) seconds")
+                    }
                     MetadataRow(label: "Session", value: job.id.uuidString, monospaced: true)
                 }
             }
@@ -113,11 +130,21 @@ private struct JobDetailView: View {
             }
             HStack {
                 if job.status == .completed {
-                    Button { model.reveal(job.output) } label: { Label("Show in Finder", systemImage: "folder") }
-                        .disabled(!FileManager.default.fileExists(atPath: job.output.path))
-                        .help(FileManager.default.fileExists(atPath: job.output.path) ? "Reveal exported IPA" : "This export has been moved or deleted")
+                    Button {
+                        model.reveal(job.output)
+                    } label: {
+                        Label("Show in Finder", systemImage: "folder")
+                    }
+                    .disabled(!FileManager.default.fileExists(atPath: job.output.path))
+                    .help(
+                        FileManager.default.fileExists(atPath: job.output.path)
+                            ? "Reveal exported IPA" : "This export has been moved or deleted")
                 }
-                Button { model.exportDiagnostics(job) } label: { Label("Save Diagnostics…", systemImage: "square.and.arrow.up") }
+                Button {
+                    model.exportDiagnostics(job)
+                } label: {
+                    Label("Save Diagnostics…", systemImage: "square.and.arrow.up")
+                }
                 Spacer()
             }
             Divider()
@@ -132,11 +159,19 @@ private struct JobDetailView: View {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     ForEach(job.events) { event in
                         HStack(alignment: .top, spacing: 10) {
-                            Text(event.date.formatted(date: .omitted, time: .standard)).font(.system(size: 11, design: .monospaced)).foregroundStyle(.secondary).frame(width: 86, alignment: .leading)
-                            Image(systemName: event.level == .error ? "xmark.circle.fill" : event.level == .warning ? "exclamationmark.triangle.fill" : "circle.fill")
-                                .font(.system(size: event.level == .info ? 6 : 11)).foregroundStyle(eventColor(event)).frame(width: 13, height: 13)
-                                .accessibilityLabel(event.level.rawValue)
-                            Text(event.message).font(.system(size: 12, design: .monospaced)).foregroundStyle(event.level == .info ? Color.primary.opacity(0.85) : eventColor(event)).textSelection(.enabled)
+                            Text(event.date.formatted(date: .omitted, time: .standard)).font(.system(size: 11, design: .monospaced))
+                                .foregroundStyle(.secondary).frame(width: 86, alignment: .leading)
+                            Image(
+                                systemName: event.level == .error
+                                    ? "xmark.circle.fill" : event.level == .warning ? "exclamationmark.triangle.fill" : "circle.fill"
+                            )
+                            .font(.system(size: event.level == .info ? 6 : 11)).foregroundStyle(eventColor(event)).frame(
+                                width: 13, height: 13
+                            )
+                            .accessibilityLabel(event.level.rawValue)
+                            Text(event.message).font(.system(size: 12, design: .monospaced)).foregroundStyle(
+                                event.level == .info ? Color.primary.opacity(0.85) : eventColor(event)
+                            ).textSelection(.enabled)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }.padding(.vertical, 11)
                         Divider()
@@ -146,6 +181,10 @@ private struct JobDetailView: View {
         }
     }
     private func eventColor(_ event: SigningEvent) -> Color {
-        switch event.level { case .info: .secondary; case .warning: Palette.warning; case .error: Palette.error }
+        switch event.level {
+        case .info: .secondary
+        case .warning: Palette.warning
+        case .error: Palette.error
+        }
     }
 }
